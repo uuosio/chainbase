@@ -79,4 +79,14 @@ namespace chainbase {
       }
    }
 
+   static undo_index_events *s_undo_index_events = nullptr;
+
+   undo_index_events *get_undo_index_events() {
+      return s_undo_index_events;
+   }
+
+   void set_undo_index_events(undo_index_events *event) {
+      s_undo_index_events = event;
+   }
+
 }  // namespace chainbase

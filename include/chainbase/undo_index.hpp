@@ -17,6 +17,7 @@
 #include <memory>
 #include <type_traits>
 #include <sstream>
+#include "undo_index_events.hpp"
 
 namespace chainbase {
 
@@ -189,19 +190,43 @@ namespace chainbase {
       // Allow compatible keys to match multi_index
       template<typename K>
       auto find(K&& k) const {
-         return base_type::find(static_cast<K&&>(k), this->key_comp());
+         undo_index_on_find_begin<K, typename Node::value_type>(k);
+         auto iter = base_type::find(static_cast<K&&>(k), this->key_comp());
+         if (iter != end()) {
+            undo_index_on_find_end<K, typename Node::value_type>(k, &*iter);
+         } else {
+            undo_index_on_find_end<K, typename Node::value_type>(k, nullptr);
+         }
+         return iter;
       }
       template<typename K>
       auto lower_bound(K&& k) const {
-         return base_type::lower_bound(static_cast<K&&>(k), this->key_comp());
+         undo_index_on_lower_bound_begin<K, typename Node::value_type>(k);
+         auto iter = base_type::lower_bound(static_cast<K&&>(k), this->key_comp());
+         if (iter != end()) {
+            undo_index_on_lower_bound_end<K, typename Node::value_type>(k, &*iter);
+         } else {
+            undo_index_on_lower_bound_end<K, typename Node::value_type>(k, nullptr);
+         }
+         return iter;
       }
       template<typename K>
       auto upper_bound(K&& k) const {
-         return base_type::upper_bound(static_cast<K&&>(k), this->key_comp());
+         undo_index_on_upper_bound_begin<K, typename Node::value_type>(k);
+         auto iter = base_type::upper_bound(static_cast<K&&>(k), this->key_comp());
+         if (iter != end()) {
+            undo_index_on_upper_bound_end<K, typename Node::value_type>(k, &*iter);
+         } else {
+            undo_index_on_upper_bound_end<K, typename Node::value_type>(k, nullptr);
+         }
+         return iter;
       }
       template<typename K>
       auto equal_range(K&& k) const {
-         return base_type::equal_range(static_cast<K&&>(k), this->key_comp());
+         undo_index_on_equal_range_begin<K, typename Node::value_type>(k);
+         auto range = base_type::equal_range(static_cast<K&&>(k), this->key_comp());
+         undo_index_on_equal_range_end<K, typename Node::value_type>(k);
+         return range;
       }
       using base_type::begin;
       using base_type::end;
@@ -339,6 +364,8 @@ namespace chainbase {
       // Exception safety: strong
       template<typename Constructor>
       const value_type& emplace( Constructor&& c ) {
+         undo_index_on_create_begin<id_type, value_type>(_next_id);
+
          auto p = alloc_traits::allocate(_allocator, 1);
          auto guard0 = scope_exit{[&]{ alloc_traits::deallocate(_allocator, p, 1); }};
          auto new_id = _next_id;
@@ -348,13 +375,18 @@ namespace chainbase {
          };
          alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
          auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
-         if(!insert_impl<1>(p->_item))
+         if(!insert_impl<1>(p->_item)) {
+            undo_index_on_create_end<id_type, value_type>(new_id, false);
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
+         }
          std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
          on_create(p->_item);
          ++_next_id;
          guard1.cancel();
          guard0.cancel();
+
+         undo_index_on_create_end<id_type, value_type>(new_id, true);
+
          return p->_item;
       }
 
@@ -363,6 +395,8 @@ namespace chainbase {
       // with another object, it will either be reverted or erased.
       template<typename Modifier>
       void modify( const value_type& obj, Modifier&& m) {
+         undo_index_on_modify_begin<value_type>(&obj);
+
          value_type* backup = on_modify(obj);
          value_type& node_ref = const_cast<value_type&>(obj);
          bool success = false;
@@ -388,6 +422,7 @@ namespace chainbase {
             (void)old_id;
             assert(obj.id == old_id);
          }
+         undo_index_on_modify_end<value_type>(&obj, success);
          if(!success)
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not modify object, most likely a uniqueness constraint was violated" } );
       }
@@ -423,16 +458,19 @@ namespace chainbase {
          undo_index* _self;
          list_base<node, index0_type> _removed_values;
       };
+
       auto track_removed() {
          return removed_nodes_tracker(*this);
       }
 
       void remove( const value_type& obj ) noexcept {
+         undo_index_on_remove_begin<value_type>(&obj);
          auto& node_ref = const_cast<value_type&>(obj);
          erase_impl(node_ref);
          if(on_remove(node_ref)) {
             dispose_node(node_ref);
          }
+         undo_index_on_remove_end<value_type>(&obj);
       }
 
     private:
