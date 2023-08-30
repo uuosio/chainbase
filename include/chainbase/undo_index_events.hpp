@@ -6,20 +6,20 @@ namespace chainbase {
     class undo_index_events {
         public:
             undo_index_events() {}
-            virtual void on_find_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) {}
-            virtual void on_find_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) {}
-            virtual void on_lower_bound_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) {}
-            virtual void on_lower_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) {}
-            virtual void on_upper_bound_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) {}
-            virtual void on_upper_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) {}
-            virtual void on_equal_range_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) {}
-            virtual void on_equal_range_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) {}
-            virtual void on_create_begin(const std::type_info& valeu_type_info, const void *id) {}
-            virtual void on_create_end(const std::type_info& valeu_type_info, const void *id, bool success) {}
-            virtual void on_modify_begin(const std::type_info& valeu_type_info, const void *obj) {}
-            virtual void on_modify_end(const std::type_info& valeu_type_info, const void *obj, bool success) {}
-            virtual void on_remove_begin(const std::type_info& valeu_type_info, const void *obj) {}
-            virtual void on_remove_end(const std::type_info& valeu_type_info, const void *obj) {}
+            virtual void on_find_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_find_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_lower_bound_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_lower_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_upper_bound_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_upper_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_equal_range_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_equal_range_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_create_begin(const std::type_info& valeu_type_info, const void *id) = 0;
+            virtual void on_create_end(const std::type_info& valeu_type_info, const void *id, const void *obj) = 0;
+            virtual void on_modify_begin(const std::type_info& valeu_type_info, const void *obj) = 0;
+            virtual void on_modify_end(const std::type_info& valeu_type_info, const void *obj, bool success) = 0;
+            virtual void on_remove_begin(const std::type_info& valeu_type_info, const void *obj) = 0;
+            virtual void on_remove_end(const std::type_info& valeu_type_info, const void *obj) = 0;
     };
 
     undo_index_events *get_undo_index_events();
@@ -91,10 +91,10 @@ namespace chainbase {
     }
 
     template<typename id_type, typename V>
-    inline void undo_index_on_create_end(const id_type& id, bool success) {
+    inline void undo_index_on_create_end(const id_type& id, const V *obj) {
         auto event = get_undo_index_events();
         if (!event) return;
-        get_undo_index_events()->on_create_end(typeid(V), &id, success);
+        get_undo_index_events()->on_create_end(typeid(V), &id, obj);
     }
 
     template<typename V>

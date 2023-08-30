@@ -376,7 +376,7 @@ namespace chainbase {
          alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
          auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
          if(!insert_impl<1>(p->_item)) {
-            undo_index_on_create_end<id_type, value_type>(new_id, false);
+            undo_index_on_create_end<id_type, value_type>(new_id, nullptr);
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
          }
          std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
@@ -385,9 +385,62 @@ namespace chainbase {
          guard1.cancel();
          guard0.cancel();
 
-         undo_index_on_create_end<id_type, value_type>(new_id, true);
+         undo_index_on_create_end<id_type, value_type>(new_id, &p->_item);
 
          return p->_item;
+      }
+
+      template<typename Constructor>
+      const value_type& emplace_ex( Constructor&& c ) {
+         auto p = alloc_traits::allocate(_allocator, 1);
+         auto new_id = _next_id;
+         auto constructor = [&]( value_type& v ) {
+            v.id = new_id;
+            c( v );
+         };
+         alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
+         on_create(p->_item);
+         ++_next_id;
+         return p->_item;
+      }
+
+      bool create_id_index( const std::vector<value_type *>& objs ) {
+         auto& idx = std::get<0>(_indices);
+         for (const auto p : objs) {
+            idx.push_back(*p);
+         }
+         return true;
+      }
+
+      template<int N = 0>
+      bool create_other_indices( const std::vector<value_type *>& objs ) {
+         if constexpr (N < sizeof...(Indices)) {
+            auto& idx = std::get<N>(_indices);
+            for (auto p : objs) {
+               auto [iter, inserted] = idx.insert_unique(*p);
+               if(!inserted) return false;
+            }
+
+            if(create_other_indices<N+1>(objs)) {
+               return true;
+            }
+
+            return false;
+         }
+         return true;
+      }
+
+      bool create_indices( const std::vector<value_type *>& objs ) {
+         if (!create_id_index(objs)) {
+            return false;
+         }
+
+         if (!create_other_indices<1>(objs)) {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "could not create indices, most likely a uniqueness constraint was violated" } );
+            return false;
+         }
+
+         return true;
       }
 
       // Exception safety: basic.
