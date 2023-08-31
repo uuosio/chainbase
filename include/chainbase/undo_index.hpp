@@ -17,6 +17,12 @@
 #include <memory>
 #include <type_traits>
 #include <sstream>
+
+#include <functional>
+#include <future>
+#include <atomic>
+#include <vector>
+
 #include "undo_index_events.hpp"
 
 namespace chainbase {
@@ -404,43 +410,56 @@ namespace chainbase {
          return p->_item;
       }
 
-      bool create_id_index( const std::vector<value_type *>& objs ) {
+      bool create_id_index( std::shared_ptr<std::vector<value_type *>> objs, std::atomic<bool>& error ) {
          auto& idx = std::get<0>(_indices);
-         for (const auto p : objs) {
+         int64_t index = 0;
+         for (const auto p : *objs) {
+            index += 1;
+            if (index % 100000 == 0) {
+               printf("create_id_index: %lld\n", index);
+               if (error) return false;
+            }
             idx.push_back(*p);
          }
          return true;
       }
 
       template<int N = 0>
-      bool create_other_indices( const std::vector<value_type *>& objs ) {
+      bool create_other_indices( std::shared_ptr<std::vector<value_type *>> objs, std::vector<std::function<bool(std::atomic<bool>&)>>& results ) {
          if constexpr (N < sizeof...(Indices)) {
-            auto& idx = std::get<N>(_indices);
-            for (auto p : objs) {
-               auto [iter, inserted] = idx.insert_unique(*p);
-               if(!inserted) return false;
-            }
-
-            if(create_other_indices<N+1>(objs)) {
+            results.emplace_back([this, objs](std::atomic<bool>& has_error){
+               printf("create_other_indices %d %s\n", N, typeid(typename std::tuple_element<N, indices_type>::type).name());
+               auto& idx = std::get<N>(_indices);
+               int64_t index = 0;
+               for (auto p : *objs) {
+                  index += 1;
+                  if (index % 100000 == 0) {
+                     printf("%d: %lld\n", N, index);
+                     if (has_error) return false;
+                  }
+                  auto [iter, inserted] = idx.insert_unique(*p);
+                  if(!inserted) {
+                     printf("+++++++error while indexing: %d\n", N);
+                     has_error = true; 
+                     return false;
+                  }
+               }
                return true;
-            }
-
-            return false;
+            });
+            return create_other_indices<N + 1>(objs, results);
          }
          return true;
       }
 
-      bool create_indices( const std::vector<value_type *>& objs ) {
-         if (!create_id_index(objs)) {
-            return false;
-         }
+      std::vector<std::function<bool(std::atomic<bool>&)>> create_indices( std::shared_ptr<std::vector<value_type *>> objs ) {
+         std::vector<std::function<bool(std::atomic<bool>&)>> result = {};
+         result.reserve(sizeof...(Indices));
+         result.emplace_back([this, objs](std::atomic<bool>& has_error){
+            return create_id_index(objs, has_error);
+         });
 
-         if (!create_other_indices<1>(objs)) {
-            BOOST_THROW_EXCEPTION( std::logic_error{ "could not create indices, most likely a uniqueness constraint was violated" } );
-            return false;
-         }
-
-         return true;
+         create_other_indices<1>(objs, result);
+         return result;
       }
 
       // Exception safety: basic.

@@ -511,7 +511,7 @@ namespace chainbase {
          }
 
          template<typename ObjectType>
-         bool create_indices( const std::vector<ObjectType *>& values )
+         std::vector<std::function<bool(std::atomic<bool>&)>> create_indices( std::shared_ptr<std::vector<ObjectType *>> values )
          {
              if ( _read_only_mode ) {
                 BOOST_THROW_EXCEPTION( std::logic_error( "attempting to create indexes in read-only mode" ) );
