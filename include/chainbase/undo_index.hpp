@@ -443,6 +443,28 @@ namespace chainbase {
          return true;
       }
 
+      size_t indices_count() const {
+         return sizeof...(Indices);
+      }
+
+      template<int N = 0>
+      bool _walk_indices( std::function<void(size_t index_type, size_t object_pos, const value_type&)> f ) const {
+         if constexpr (N < sizeof...(Indices)) {
+            auto& idx = std::get<N>(_indices);
+            size_t index = 0;
+            for (const auto& obj : idx) {
+               f(N, index, obj);
+               index += 1;
+            }
+            return _walk_indices<N+1>(f);
+         }
+         return true;
+      }
+
+      bool walk_indices( std::function<void(size_t index_type, size_t object_pos, const value_type&)> f ) const {
+         return _walk_indices<0>(f);
+      }
+
       // Exception safety: basic.
       // If the modifier leaves the object in a state that conflicts
       // with another object, it will either be reverted or erased.
