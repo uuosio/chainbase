@@ -391,7 +391,7 @@ namespace chainbase {
       }
 
       template<typename Constructor>
-      const value_type& emplace_ex( Constructor&& c ) {
+      const value_type& emplace_without_indexing( Constructor&& c ) {
          auto p = alloc_traits::allocate(_allocator, 1);
          auto new_id = _next_id;
          auto constructor = [&]( value_type& v ) {
