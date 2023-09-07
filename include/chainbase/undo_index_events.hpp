@@ -6,12 +6,12 @@ namespace chainbase {
     class undo_index_events {
         public:
             undo_index_events() {}
-            virtual void on_find_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
-            virtual void on_find_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void *on_find_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_find_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
             virtual void on_lower_bound_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
-            virtual void on_lower_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_lower_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
             virtual void on_upper_bound_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
-            virtual void on_upper_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_upper_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
             virtual void on_equal_range_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
             virtual void on_equal_range_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
             virtual void on_create_begin(const std::type_info& valeu_type_info, const void *id) = 0;
@@ -26,17 +26,17 @@ namespace chainbase {
     void set_undo_index_events(undo_index_events *event);
 
     template<typename K, typename V>
-    inline void undo_index_on_find_begin(const K& key) {
+    inline void *undo_index_on_find_begin(const K& key) {
         auto event = get_undo_index_events();
-        if (!event) return;
-        get_undo_index_events()->on_find_begin(typeid(K), typeid(V), &key);
+        if (!event) return nullptr;
+        return get_undo_index_events()->on_find_begin(typeid(K), typeid(V), &key);
     }
 
     template<typename K, typename V>
     inline void undo_index_on_find_end(const K& key, const V *obj) {
         auto event = get_undo_index_events();
-        if (!event) return;        
-        get_undo_index_events()->on_find_end(typeid(K), typeid(V), &key);
+        if (!event) return;
+        get_undo_index_events()->on_find_end(typeid(K), typeid(V), &key, obj);
     }
 
     template<typename K, typename V>
@@ -50,7 +50,7 @@ namespace chainbase {
     inline void undo_index_on_lower_bound_end(const K& key, const V *obj) {
         auto event = get_undo_index_events();
         if (!event) return;
-        get_undo_index_events()->on_lower_bound_end(typeid(K), typeid(V), &key);
+        get_undo_index_events()->on_lower_bound_end(typeid(K), typeid(V), &key, obj);
     }
 
 
@@ -65,7 +65,7 @@ namespace chainbase {
     inline void undo_index_on_upper_bound_end(const K& key, const V *obj) {
         auto event = get_undo_index_events();
         if (!event) return;
-        get_undo_index_events()->on_upper_bound_end(typeid(K), typeid(V), &key);
+        get_undo_index_events()->on_upper_bound_end(typeid(K), typeid(V), &key, obj);
     }
 
     template<typename K, typename V>

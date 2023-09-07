@@ -17,6 +17,7 @@
 #include <memory>
 #include <type_traits>
 #include <sstream>
+
 #include "undo_index_events.hpp"
 
 namespace chainbase {
@@ -190,7 +191,10 @@ namespace chainbase {
       // Allow compatible keys to match multi_index
       template<typename K>
       auto find(K&& k) const {
-         undo_index_on_find_begin<K, typename Node::value_type>(k);
+         void *obj = undo_index_on_find_begin<K, typename Node::value_type>(k);
+         if (obj != nullptr) {
+            return iterator_to(*static_cast<typename Node::value_type *>(obj));
+         }
          auto iter = base_type::find(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
             undo_index_on_find_end<K, typename Node::value_type>(k, &*iter);

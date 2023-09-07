@@ -6,6 +6,9 @@
 #include <iostream>
 #include <fstream>
 
+#include <sys/mman.h>
+#include <unistd.h>
+
 #ifdef __linux__
 #include <linux/mman.h>
 #endif
@@ -53,7 +56,8 @@ const std::error_category& chainbase_error_category() {
 pinnable_mapped_file::pinnable_mapped_file(const std::filesystem::path& dir, bool writable, uint64_t shared_file_size, bool allow_dirty, map_mode mode) :
    _data_file_path(std::filesystem::absolute(dir/"shared_memory.bin")),
    _database_name(dir.filename().string()),
-   _writable(writable)
+   _writable(writable),
+   _map_mode(mode)
 {
    if(shared_file_size % _db_size_multiple_requirement) {
       std::string what_str("Database must be mulitple of " + std::to_string(_db_size_multiple_requirement) + " bytes");
@@ -237,6 +241,11 @@ void pinnable_mapped_file::load_database_file(boost::asio::io_service& sig_ios) 
    time_t t = time(nullptr);
    while(offset != _file_mapped_region.get_size()) {
       memcpy(dst+offset, src+offset, _db_size_multiple_requirement);
+      if (_map_mode == heap) {
+         if (-1 == madvise(src+offset, _db_size_multiple_requirement, MADV_DONTNEED)) {
+            std::cerr << "CHAINBASE: ERROR: madvise failed: " << strerror(errno) << std::endl;
+         }
+      }
       offset += _db_size_multiple_requirement;
 
       if(time(nullptr) != t) {
@@ -267,6 +276,15 @@ void pinnable_mapped_file::save_database_file() {
    while(offset != _file_mapped_region.get_size()) {
       if(!all_zeros(src+offset, _db_size_multiple_requirement))
          memcpy(dst+offset, src+offset, _db_size_multiple_requirement);
+      if (_map_mode == heap) {
+         if (-1 == madvise(dst+offset, _db_size_multiple_requirement, MADV_DONTNEED)) {
+            std::cerr << "CHAINBASE: ERROR: madvise failed: " << strerror(errno) << std::endl;
+         }
+         if (-1 == madvise(src+offset, _db_size_multiple_requirement, MADV_FREE)) {
+            std::cerr << "CHAINBASE: ERROR: madvise failed: " << strerror(errno) << std::endl;
+         }
+      }
+
       offset += _db_size_multiple_requirement;
 
       if(time(nullptr) != t) {
