@@ -79,6 +79,58 @@ namespace chainbase {
       }
    }
 
+   int64_t database::revision()const {
+      if( _index_list.size() == 0 ) return -1;
+      return _index_list[0]->revision();
+   }
+
+   void database::set_revision( uint64_t revision )
+   {
+      if ( _read_only_mode ) {
+         BOOST_THROW_EXCEPTION( std::logic_error( "attempting to set revision in read-only mode" ) );
+      }
+      for( auto i : _index_list ) i->set_revision( revision );
+   }
+
+   pinnable_mapped_file::segment_manager* database::get_segment_manager() {
+      return _db_file.get_segment_manager();
+   }
+
+   const pinnable_mapped_file::segment_manager* database::get_segment_manager() const {
+      return _db_file.get_segment_manager();
+   }
+
+   size_t database::get_free_memory()const
+   {
+      return _db_file.get_segment_manager()->get_free_memory();
+   }
+
+   void database::set_read_only_mode() {
+      _read_only_mode = true;
+   }
+
+   void database::unset_read_only_mode() {
+         if ( _read_only )
+            BOOST_THROW_EXCEPTION( std::logic_error( "attempting to unset read_only_mode while database was opened as read only" ) );
+      _read_only_mode = false;
+   }
+
+   bool database::has_undo_session() const
+   {
+      assert( _index_list.size() > 0 );
+      return _index_list[0]->has_undo_session();
+   }
+
+   database::database_index_row_count_multiset database::row_count_per_index()const {
+      database_index_row_count_multiset ret;
+      for(const auto& ai_ptr : _index_map) {
+         if(!ai_ptr)
+            continue;
+         ret.emplace(make_pair(ai_ptr->row_count(), ai_ptr->type_name()));
+      }
+      return ret;
+   }
+
    static undo_index_events *s_undo_index_events = nullptr;
 
    undo_index_events *get_undo_index_events() {
