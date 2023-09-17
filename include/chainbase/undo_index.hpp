@@ -191,11 +191,20 @@ namespace chainbase {
       // Allow compatible keys to match multi_index
       template<typename K>
       auto find(K&& k) const {
-         void *obj = undo_index_on_find_begin<K, typename Node::value_type>(k);
-         if (obj != nullptr) {
-            undo_index_on_find_end<K, typename Node::value_type>(k, static_cast<typename Node::value_type *>(obj));
-            return iterator_to(*static_cast<typename Node::value_type *>(obj));
+         undo_index_on_find_begin<K, typename Node::value_type>(k);
+         if (undo_index_find_in_cache()) {
+            bool cached = false;
+            auto obj = undo_index_find_in_cache<K, typename Node::value_type>(k, cached);
+            if (cached) {
+               undo_index_on_find_end<K, typename Node::value_type>(k, static_cast<const typename Node::value_type *>(obj));
+               if (obj) {
+                  return iterator_to(*static_cast<const typename Node::value_type *>(obj));
+               } else {
+                  return end();
+               }
+            }
          }
+
          auto iter = base_type::find(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
             undo_index_on_find_end<K, typename Node::value_type>(k, &*iter);

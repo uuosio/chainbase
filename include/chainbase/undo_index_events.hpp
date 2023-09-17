@@ -6,7 +6,8 @@ namespace chainbase {
     class undo_index_events {
         public:
             undo_index_events() {}
-            virtual void *on_find_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual const void *find_in_cache(const std::type_info& key_type_info, const std::type_info& value_type_info, const void *key, bool& cached) = 0;
+            virtual void on_find_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
             virtual void on_find_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
             virtual void on_lower_bound_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
             virtual void on_lower_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
@@ -25,11 +26,21 @@ namespace chainbase {
     undo_index_events *get_undo_index_events();
     void set_undo_index_events(undo_index_events *event);
 
+    bool undo_index_find_in_cache();
+    void set_undo_index_find_in_cache(bool enabled);
+
     template<typename K, typename V>
-    inline void *undo_index_on_find_begin(const K& key) {
+    inline const void *undo_index_find_in_cache(const K& key, bool& cached) {
         auto event = get_undo_index_events();
         if (!event) return nullptr;
-        return get_undo_index_events()->on_find_begin(typeid(K), typeid(V), &key);
+        return get_undo_index_events()->find_in_cache(typeid(K), typeid(V), &key, cached);
+    }
+
+    template<typename K, typename V>
+    inline const void undo_index_on_find_begin(const K& key) {
+        auto event = get_undo_index_events();
+        if (!event) return;
+        get_undo_index_events()->on_find_begin(typeid(K), typeid(V), &key);
     }
 
     template<typename K, typename V>
