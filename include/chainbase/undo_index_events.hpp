@@ -26,8 +26,8 @@ namespace chainbase {
     undo_index_events *get_undo_index_events();
     void set_undo_index_events(undo_index_events *event);
 
-    bool undo_index_find_in_cache();
-    void set_undo_index_find_in_cache(bool enabled);
+    bool undo_index_cache_enabled();
+    void undo_index_enable_cache(bool enabled);
 
     template<typename K, typename V>
     inline const void *undo_index_find_in_cache(const K& key, bool& cached) {

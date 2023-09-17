@@ -192,7 +192,7 @@ namespace chainbase {
       template<typename K>
       auto find(K&& k) const {
          undo_index_on_find_begin<K, typename Node::value_type>(k);
-         if (undo_index_find_in_cache()) {
+         if (undo_index_cache_enabled()) {
             bool cached = false;
             auto obj = undo_index_find_in_cache<K, typename Node::value_type>(k, cached);
             if (cached) {

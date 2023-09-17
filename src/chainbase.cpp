@@ -140,5 +140,12 @@ namespace chainbase {
    void set_undo_index_events(undo_index_events *event) {
       s_undo_index_events = event;
    }
-
+   static bool s_undo_index_cache_enabled = false;
+   bool undo_index_cache_enabled() {
+      return s_undo_index_cache_enabled;
+   }
+   
+   void undo_index_enable_cache(bool enabled) {
+      s_undo_index_cache_enabled = enabled;
+   }
 }  // namespace chainbase
