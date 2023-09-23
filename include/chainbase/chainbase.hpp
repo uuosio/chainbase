@@ -155,6 +155,13 @@ namespace chainbase {
          virtual unique_ptr<abstract_session> start_undo_session( bool enabled ) = 0;
 
          virtual int64_t revision()const = 0;
+
+         virtual int64_t get_database_id()const = 0;
+         virtual void    set_database_id( uint64_t database_id ) = 0;
+
+         virtual int64_t get_instance_id()const = 0;
+         virtual void    set_instance_id( uint64_t instance_id ) = 0;
+
          virtual void    undo()const = 0;
          virtual void    squash()const = 0;
          virtual void    commit( int64_t revision )const = 0;
@@ -183,6 +190,13 @@ namespace chainbase {
 
          virtual void     set_revision( uint64_t revision ) override { _base.set_revision( revision ); }
          virtual int64_t  revision()const  override { return _base.revision(); }
+
+         virtual void     set_database_id( uint64_t id ) override { _base.set_database_id( id ); }
+         virtual int64_t  get_database_id()const override { return _base.get_database_id(); }
+
+         virtual void     set_instance_id( uint64_t id ) override { _base.set_instance_id( id ); }
+         virtual int64_t  get_instance_id()const override { return _base.get_instance_id(); }
+
          virtual void     undo()const  override { _base.undo(); }
          virtual void     squash()const  override { _base.squash(); }
          virtual void     commit( int64_t revision )const  override { _base.commit(revision); }
@@ -304,6 +318,12 @@ namespace chainbase {
 
          int64_t revision()const;
          void set_revision( uint64_t revision );
+
+         int64_t get_database_id()const;
+         void set_database_id( uint64_t id );
+
+         int64_t get_instance_id()const;
+         void set_instance_id( uint64_t id );
 
          pinnable_mapped_file::segment_manager* get_segment_manager();
          const pinnable_mapped_file::segment_manager* get_segment_manager() const;

@@ -6,133 +6,135 @@ namespace chainbase {
     class undo_index_events {
         public:
             undo_index_events() {}
-            virtual const void *find_in_cache(const std::type_info& key_type_info, const std::type_info& value_type_info, const void *key, bool& cached) = 0;
-            virtual void on_find_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
-            virtual void on_find_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
-            virtual void on_lower_bound_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
-            virtual void on_lower_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
-            virtual void on_upper_bound_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
-            virtual void on_upper_bound_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
-            virtual void on_equal_range_begin(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
-            virtual void on_equal_range_end(const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
-            virtual void on_create_begin(const std::type_info& valeu_type_info, const void *id) = 0;
-            virtual void on_create_end(const std::type_info& valeu_type_info, const void *id, const void *obj) = 0;
-            virtual void on_modify_begin(const std::type_info& valeu_type_info, const void *obj) = 0;
-            virtual void on_modify_end(const std::type_info& valeu_type_info, const void *obj, bool success) = 0;
-            virtual void on_remove_begin(const std::type_info& valeu_type_info, const void *obj) = 0;
-            virtual void on_remove_end(const std::type_info& valeu_type_info, const void *obj) = 0;
+            virtual uint64_t get_instance_id() const = 0;
+            virtual bool is_cache_enabled() const = 0;
+            virtual const void *find_in_cache(uint64_t instance_id, const std::type_info& key_type_info, const std::type_info& value_type_info, const void *key, bool& cached) = 0;
+            virtual void on_find_begin(uint64_t instance_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_find_end(uint64_t instance_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
+            virtual void on_lower_bound_begin(uint64_t instance_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_lower_bound_end(uint64_t instance_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
+            virtual void on_upper_bound_begin(uint64_t instance_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_upper_bound_end(uint64_t instance_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
+            virtual void on_equal_range_begin(uint64_t instance_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_equal_range_end(uint64_t instance_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
+            virtual void on_create_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *id) = 0;
+            virtual void on_create_end(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *id, const void *obj) = 0;
+            virtual void on_modify_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *obj) = 0;
+            virtual void on_modify_end(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *obj, bool success) = 0;
+            virtual void on_remove_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *obj) = 0;
+            virtual void on_remove_end(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *obj) = 0;
     };
 
-    undo_index_events *get_undo_index_events();
-    void set_undo_index_events(undo_index_events *event);
+    undo_index_events *get_undo_index_events(uint64_t instance_id);
+    void add_undo_index_events(undo_index_events *event);
+    void clear_undo_index_events(uint64_t instance_id);
 
-    bool undo_index_cache_enabled();
-    void undo_index_enable_cache(bool enabled);
+    bool undo_index_cache_enabled(uint64_t instance_id);
 
     template<typename K, typename V>
-    inline const void *undo_index_find_in_cache(const K& key, bool& cached) {
-        auto event = get_undo_index_events();
+    inline const void *undo_index_find_in_cache(uint64_t instance_id, const K& key, bool& cached) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return nullptr;
-        return get_undo_index_events()->find_in_cache(typeid(K), typeid(V), &key, cached);
+        return event->find_in_cache(instance_id, typeid(K), typeid(V), &key, cached);
     }
 
     template<typename K, typename V>
-    inline const void undo_index_on_find_begin(const K& key) {
-        auto event = get_undo_index_events();
+    inline const void undo_index_on_find_begin(uint64_t instance_id, const K& key) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_find_begin(typeid(K), typeid(V), &key);
+        event->on_find_begin(instance_id, typeid(K), typeid(V), &key);
     }
 
     template<typename K, typename V>
-    inline void undo_index_on_find_end(const K& key, const V *obj) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_find_end(uint64_t instance_id, const K& key, const V *obj) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_find_end(typeid(K), typeid(V), &key, obj);
+        event->on_find_end(instance_id, typeid(K), typeid(V), &key, obj);
     }
 
     template<typename K, typename V>
-    inline void undo_index_on_lower_bound_begin(const K& key) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_lower_bound_begin(uint64_t instance_id, const K& key) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_lower_bound_begin(typeid(K), typeid(V), &key);
+        event->on_lower_bound_begin(instance_id, typeid(K), typeid(V), &key);
     }
 
     template<typename K, typename V>
-    inline void undo_index_on_lower_bound_end(const K& key, const V *obj) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_lower_bound_end(uint64_t instance_id, const K& key, const V *obj) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_lower_bound_end(typeid(K), typeid(V), &key, obj);
+        event->on_lower_bound_end(instance_id, typeid(K), typeid(V), &key, obj);
     }
 
 
     template<typename K, typename V>
-    inline void undo_index_on_upper_bound_begin(const K& key) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_upper_bound_begin(uint64_t instance_id, const K& key) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_upper_bound_begin(typeid(K), typeid(V), &key);
+        event->on_upper_bound_begin(instance_id, typeid(K), typeid(V), &key);
     }
 
     template<typename K, typename V>
-    inline void undo_index_on_upper_bound_end(const K& key, const V *obj) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_upper_bound_end(uint64_t instance_id, const K& key, const V *obj) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_upper_bound_end(typeid(K), typeid(V), &key, obj);
+        event->on_upper_bound_end(instance_id, typeid(K), typeid(V), &key, obj);
     }
 
     template<typename K, typename V>
-    inline void undo_index_on_equal_range_begin(const K& key) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_equal_range_begin(uint64_t instance_id, const K& key) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_equal_range_begin(typeid(K), typeid(V), &key);
+        event->on_equal_range_begin(instance_id, typeid(K), typeid(V), &key);
     }
 
     template<typename K, typename V>
-    inline void undo_index_on_equal_range_end(const K& key) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_equal_range_end(uint64_t instance_id, const K& key) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_equal_range_end(typeid(K), typeid(V), &key);
+        event->on_equal_range_end(instance_id, typeid(K), typeid(V), &key);
     }
 
 
     template<typename id_type, typename V>
-    inline void undo_index_on_create_begin(const id_type& id) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_create_begin(uint64_t instance_id, uint64_t database_id, const id_type& id) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_create_begin(typeid(V), &id);
+        event->on_create_begin(instance_id, database_id, typeid(V), &id);
     }
 
     template<typename id_type, typename V>
-    inline void undo_index_on_create_end(const id_type& id, const V *obj) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_create_end(uint64_t instance_id, uint64_t database_id, const id_type& id, const V *obj) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_create_end(typeid(V), &id, obj);
+        event->on_create_end(instance_id, database_id, typeid(V), &id, obj);
     }
 
     template<typename V>
-    inline void undo_index_on_modify_begin(const V *obj) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_modify_begin(uint64_t instance_id, uint64_t database_id, const V *obj) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_modify_begin(typeid(V), obj);
+        event->on_modify_begin(instance_id, database_id, typeid(V), obj);
     }
 
     template<typename V>
-    inline void undo_index_on_modify_end(const V *obj, bool success) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_modify_end(uint64_t instance_id, uint64_t database_id, const V *obj, bool success) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_modify_end(typeid(V), obj, success);
+        event->on_modify_end(instance_id, database_id, typeid(V), obj, success);
     }
 
     template<typename V>
-    inline void undo_index_on_remove_begin(const V *obj) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_remove_begin(uint64_t instance_id, uint64_t database_id, const V *obj) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_remove_begin(typeid(V), obj);
+        event->on_remove_begin(instance_id, database_id, typeid(V), obj);
     }
 
     template<typename V>
-    inline void undo_index_on_remove_end(const V *obj) {
-        auto event = get_undo_index_events();
+    inline void undo_index_on_remove_end(uint64_t instance_id, uint64_t database_id, const V *obj) {
+        auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        get_undo_index_events()->on_remove_end(typeid(V), obj);
+        event->on_remove_end(instance_id, database_id, typeid(V), obj);
     }
 }

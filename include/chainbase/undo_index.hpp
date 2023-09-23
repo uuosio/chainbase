@@ -191,12 +191,12 @@ namespace chainbase {
       // Allow compatible keys to match multi_index
       template<typename K>
       auto find(K&& k) const {
-         undo_index_on_find_begin<K, typename Node::value_type>(k);
-         if (undo_index_cache_enabled()) {
+         undo_index_on_find_begin<K, typename Node::value_type>(_instance_id, k);
+         if (undo_index_cache_enabled(_instance_id)) {
             bool cached = false;
-            auto obj = undo_index_find_in_cache<K, typename Node::value_type>(k, cached);
+            auto obj = undo_index_find_in_cache<K, typename Node::value_type>(_instance_id, k, cached);
             if (cached) {
-               undo_index_on_find_end<K, typename Node::value_type>(k, static_cast<const typename Node::value_type *>(obj));
+               undo_index_on_find_end<K, typename Node::value_type>(_instance_id, k, static_cast<const typename Node::value_type *>(obj));
                if (obj) {
                   return iterator_to(*static_cast<const typename Node::value_type *>(obj));
                } else {
@@ -207,41 +207,50 @@ namespace chainbase {
 
          auto iter = base_type::find(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
-            undo_index_on_find_end<K, typename Node::value_type>(k, &*iter);
+            undo_index_on_find_end<K, typename Node::value_type>(_instance_id, k, &*iter);
          } else {
-            undo_index_on_find_end<K, typename Node::value_type>(k, nullptr);
+            undo_index_on_find_end<K, typename Node::value_type>(_instance_id, k, nullptr);
          }
          return iter;
       }
       template<typename K>
       auto lower_bound(K&& k) const {
-         undo_index_on_lower_bound_begin<K, typename Node::value_type>(k);
+         undo_index_on_lower_bound_begin<K, typename Node::value_type>(_instance_id, k);
          auto iter = base_type::lower_bound(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
-            undo_index_on_lower_bound_end<K, typename Node::value_type>(k, &*iter);
+            undo_index_on_lower_bound_end<K, typename Node::value_type>(_instance_id, k, &*iter);
          } else {
-            undo_index_on_lower_bound_end<K, typename Node::value_type>(k, nullptr);
+            undo_index_on_lower_bound_end<K, typename Node::value_type>(_instance_id, k, nullptr);
          }
          return iter;
       }
       template<typename K>
       auto upper_bound(K&& k) const {
-         undo_index_on_upper_bound_begin<K, typename Node::value_type>(k);
+         undo_index_on_upper_bound_begin<K, typename Node::value_type>(_instance_id, k);
          auto iter = base_type::upper_bound(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
-            undo_index_on_upper_bound_end<K, typename Node::value_type>(k, &*iter);
+            undo_index_on_upper_bound_end<K, typename Node::value_type>(_instance_id, k, &*iter);
          } else {
-            undo_index_on_upper_bound_end<K, typename Node::value_type>(k, nullptr);
+            undo_index_on_upper_bound_end<K, typename Node::value_type>(_instance_id, k, nullptr);
          }
          return iter;
       }
       template<typename K>
       auto equal_range(K&& k) const {
-         undo_index_on_equal_range_begin<K, typename Node::value_type>(k);
+         undo_index_on_equal_range_begin<K, typename Node::value_type>(_instance_id, k);
          auto range = base_type::equal_range(static_cast<K&&>(k), this->key_comp());
-         undo_index_on_equal_range_end<K, typename Node::value_type>(k);
+         undo_index_on_equal_range_end<K, typename Node::value_type>(_instance_id, k);
          return range;
       }
+
+      void set_instance_id(uint64_t instance_id) {
+         _instance_id = instance_id;
+      }
+
+      uint64_t get_instance_id() const {
+         return _instance_id;
+      }
+
       using base_type::begin;
       using base_type::end;
       using base_type::rbegin;
@@ -251,6 +260,9 @@ namespace chainbase {
       using base_type::empty;
       template<typename T, typename Allocator, typename... Indices>
       friend class undo_index;
+
+      private:
+         uint64_t _instance_id = 0; //database instance id
    };
 
    template<typename T, typename S>
@@ -378,7 +390,7 @@ namespace chainbase {
       // Exception safety: strong
       template<typename Constructor>
       const value_type& emplace( Constructor&& c ) {
-         undo_index_on_create_begin<id_type, value_type>(_next_id);
+         undo_index_on_create_begin<id_type, value_type>(_instance_id, _database_id, _next_id);
 
          auto p = alloc_traits::allocate(_allocator, 1);
          auto guard0 = scope_exit{[&]{ alloc_traits::deallocate(_allocator, p, 1); }};
@@ -390,7 +402,7 @@ namespace chainbase {
          alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
          auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
          if(!insert_impl<1>(p->_item)) {
-            undo_index_on_create_end<id_type, value_type>(new_id, nullptr);
+            undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
          }
          std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
@@ -399,7 +411,7 @@ namespace chainbase {
          guard1.cancel();
          guard0.cancel();
 
-         undo_index_on_create_end<id_type, value_type>(new_id, &p->_item);
+         undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, &p->_item);
 
          return p->_item;
       }
@@ -484,7 +496,7 @@ namespace chainbase {
       // with another object, it will either be reverted or erased.
       template<typename Modifier>
       void modify( const value_type& obj, Modifier&& m) {
-         undo_index_on_modify_begin<value_type>(&obj);
+         undo_index_on_modify_begin<value_type>(_instance_id, _database_id, &obj);
 
          value_type* backup = on_modify(obj);
          value_type& node_ref = const_cast<value_type&>(obj);
@@ -511,7 +523,7 @@ namespace chainbase {
             (void)old_id;
             assert(obj.id == old_id);
          }
-         undo_index_on_modify_end<value_type>(&obj, success);
+         undo_index_on_modify_end<value_type>(_instance_id, _database_id, &obj, success);
          if(!success)
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not modify object, most likely a uniqueness constraint was violated" } );
       }
@@ -553,13 +565,13 @@ namespace chainbase {
       }
 
       void remove( const value_type& obj ) noexcept {
-         undo_index_on_remove_begin<value_type>(&obj);
+         undo_index_on_remove_begin<value_type>(_instance_id, _database_id, &obj);
          auto& node_ref = const_cast<value_type&>(obj);
          erase_impl(node_ref);
          if(on_remove(node_ref)) {
             dispose_node(node_ref);
          }
-         undo_index_on_remove_end<value_type>(&obj);
+         undo_index_on_remove_end<value_type>(_instance_id, _database_id, &obj);
       }
 
     private:
@@ -652,6 +664,33 @@ namespace chainbase {
             BOOST_THROW_EXCEPTION( std::logic_error("revision cannot decrease") );
 
          _revision = revision;
+      }
+
+      void set_database_id( uint64_t id ) {
+         _database_id = id;
+      }
+
+      uint64_t get_database_id() const {
+         return _database_id;
+      }
+
+      uint64_t get_instance_id() const {
+         return _instance_id;
+      }
+
+      void set_instance_id( uint64_t instance_id ) {
+         _instance_id = instance_id;
+         _set_instance_id(instance_id);
+      }
+
+      template<int N = 0>
+      void _set_instance_id( uint64_t instance_id ) {
+         if constexpr (N < sizeof...(Indices)) {
+            auto& idx = std::get<N>(_indices);
+            idx.set_instance_id(instance_id);
+
+            _set_instance_id<N+1>(instance_id);
+         }
       }
 
       std::pair<uint64_t, uint64_t> undo_stack_revision_range() const {
@@ -1023,6 +1062,8 @@ namespace chainbase {
       id_type _next_id = 0;
       uint64_t _revision = 0;
       uint64_t _monotonic_revision = 0;
+      uint64_t _database_id = 0;
+      uint64_t _instance_id = 0;
       uint32_t                        _size_of_value_type = sizeof(node);
       uint32_t                        _size_of_this = sizeof(undo_index);
    };
