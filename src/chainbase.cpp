@@ -168,8 +168,6 @@ namespace chainbase {
          return it->second;
       }
 
-      // BOOST_THROW_EXCEPTION( std::runtime_error("instance id not found") );
-
       return nullptr;
    }
 
@@ -189,7 +187,7 @@ namespace chainbase {
    void clear_undo_index_events(uint64_t instance_id) {
       auto it = s_undo_index_events.find(instance_id);
       if (it == s_undo_index_events.end()) {
-         BOOST_THROW_EXCEPTION( std::runtime_error("instance id not found") );
+         BOOST_THROW_EXCEPTION( std::runtime_error("clear_undo_index_events: instance id not found") );
       }
 
       if (it->second->get_instance_id() != instance_id) {
@@ -202,7 +200,7 @@ namespace chainbase {
    bool undo_index_cache_enabled(uint64_t instance_id) {
       auto it = s_undo_index_events.find(instance_id);
       if (it == s_undo_index_events.end()) {
-         BOOST_THROW_EXCEPTION( std::runtime_error("instance id not found") );
+         return false;
       }
 
       return it->second->is_cache_enabled();

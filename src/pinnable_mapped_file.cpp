@@ -162,10 +162,15 @@ pinnable_mapped_file::pinnable_mapped_file(const std::filesystem::path& dir, boo
       try {
          setup_non_file_mapping();
          load_database_file(sig_ios);
+         _segment_manager = reinterpret_cast<segment_manager*>((char*)_non_file_mapped_mapping+header_size);
 
 #ifndef _WIN32
          if(mode == locked) {
-            if(mlock(_non_file_mapped_mapping, _non_file_mapped_mapping_size)) {
+            size_t page_size = sysconf(_SC_PAGESIZE); // Get the size of a page
+            size_t used_size = _segment_manager->get_size() - _segment_manager->get_free_memory();
+            used_size = (used_size + (page_size-1u))/page_size*page_size;
+            std::cerr << "CHAINBASE: Database \"" << _database_name << ", used size:" << used_size / 1024 / 1024 << " MB" << std::endl;
+            if(mlock(_non_file_mapped_mapping, used_size)) {
                std::string what_str("Failed to mlock database \"" + _database_name + "\"");
                BOOST_THROW_EXCEPTION(std::system_error(make_error_code(db_error_code::no_mlock), what_str));
             }
@@ -180,8 +185,6 @@ pinnable_mapped_file::pinnable_mapped_file(const std::filesystem::path& dir, boo
             set_mapped_file_db_dirty(false);
          throw;
       }
-
-      _segment_manager = reinterpret_cast<segment_manager*>((char*)_non_file_mapped_mapping+header_size);
    }
 }
 

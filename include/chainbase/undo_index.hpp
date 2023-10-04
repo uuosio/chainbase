@@ -191,12 +191,12 @@ namespace chainbase {
       // Allow compatible keys to match multi_index
       template<typename K>
       auto find(K&& k) const {
-         undo_index_on_find_begin<K, typename Node::value_type>(_instance_id, k);
+         undo_index_on_find_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
          if (undo_index_cache_enabled(_instance_id)) {
             bool cached = false;
-            auto obj = undo_index_find_in_cache<K, typename Node::value_type>(_instance_id, k, cached);
+            auto obj = undo_index_find_in_cache<K, typename Node::value_type>(_instance_id, _database_id, k, cached);
             if (cached) {
-               undo_index_on_find_end<K, typename Node::value_type>(_instance_id, k, static_cast<const typename Node::value_type *>(obj));
+               undo_index_on_find_end<K, typename Node::value_type>(_instance_id, _database_id, k, static_cast<const typename Node::value_type *>(obj));
                if (obj) {
                   return iterator_to(*static_cast<const typename Node::value_type *>(obj));
                } else {
@@ -207,39 +207,39 @@ namespace chainbase {
 
          auto iter = base_type::find(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
-            undo_index_on_find_end<K, typename Node::value_type>(_instance_id, k, &*iter);
+            undo_index_on_find_end<K, typename Node::value_type>(_instance_id, _database_id, k, &*iter);
          } else {
-            undo_index_on_find_end<K, typename Node::value_type>(_instance_id, k, nullptr);
+            undo_index_on_find_end<K, typename Node::value_type>(_instance_id, _database_id, k, nullptr);
          }
          return iter;
       }
       template<typename K>
       auto lower_bound(K&& k) const {
-         undo_index_on_lower_bound_begin<K, typename Node::value_type>(_instance_id, k);
+         undo_index_on_lower_bound_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
          auto iter = base_type::lower_bound(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
-            undo_index_on_lower_bound_end<K, typename Node::value_type>(_instance_id, k, &*iter);
+            undo_index_on_lower_bound_end<K, typename Node::value_type>(_instance_id, _database_id, k, &*iter);
          } else {
-            undo_index_on_lower_bound_end<K, typename Node::value_type>(_instance_id, k, nullptr);
+            undo_index_on_lower_bound_end<K, typename Node::value_type>(_instance_id, _database_id, k, nullptr);
          }
          return iter;
       }
       template<typename K>
       auto upper_bound(K&& k) const {
-         undo_index_on_upper_bound_begin<K, typename Node::value_type>(_instance_id, k);
+         undo_index_on_upper_bound_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
          auto iter = base_type::upper_bound(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
-            undo_index_on_upper_bound_end<K, typename Node::value_type>(_instance_id, k, &*iter);
+            undo_index_on_upper_bound_end<K, typename Node::value_type>(_instance_id, _database_id, k, &*iter);
          } else {
-            undo_index_on_upper_bound_end<K, typename Node::value_type>(_instance_id, k, nullptr);
+            undo_index_on_upper_bound_end<K, typename Node::value_type>(_instance_id, _database_id, k, nullptr);
          }
          return iter;
       }
       template<typename K>
       auto equal_range(K&& k) const {
-         undo_index_on_equal_range_begin<K, typename Node::value_type>(_instance_id, k);
+         undo_index_on_equal_range_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
          auto range = base_type::equal_range(static_cast<K&&>(k), this->key_comp());
-         undo_index_on_equal_range_end<K, typename Node::value_type>(_instance_id, k);
+         undo_index_on_equal_range_end<K, typename Node::value_type>(_instance_id, _database_id, k);
          return range;
       }
 
@@ -249,6 +249,14 @@ namespace chainbase {
 
       uint64_t get_instance_id() const {
          return _instance_id;
+      }
+
+      void set_database_id(uint64_t database_id) {
+         _database_id = database_id;
+      }
+
+      uint64_t get_database_id() const {
+         return _database_id;
       }
 
       using base_type::begin;
@@ -263,6 +271,7 @@ namespace chainbase {
 
       private:
          uint64_t _instance_id = 0; //database instance id
+         uint64_t _database_id = 0;
    };
 
    template<typename T, typename S>
@@ -668,6 +677,17 @@ namespace chainbase {
 
       void set_database_id( uint64_t id ) {
          _database_id = id;
+         _set_database_id(id);
+      }
+
+      template<int N = 0>
+      void _set_database_id( uint64_t database_id ) {
+         if constexpr (N < sizeof...(Indices)) {
+            auto& idx = std::get<N>(_indices);
+            idx.set_database_id(database_id);
+
+            _set_database_id<N+1>(database_id);
+         }
       }
 
       uint64_t get_database_id() const {
@@ -777,6 +797,7 @@ namespace chainbase {
          auto& by_id = std::get<0>(_indices);
          auto new_ids_iter = by_id.lower_bound(undo_info.old_next_id);
          by_id.erase_and_dispose(new_ids_iter, by_id.end(), [this](pointer p){
+            undo_index_on_remove_value(_instance_id, _database_id, &*p);
             erase_impl<1>(*p);
             dispose_node(*p);
          });
@@ -805,6 +826,7 @@ namespace chainbase {
             if (p->id < undo_info.old_next_id) {
                get_removed_field(*p) = 0; // Will be overwritten by tree algorithms, because we're reusing the color.
                insert_impl(*p);
+               undo_index_on_restore_removed_value(_instance_id, _database_id, &*p);
             } else {
                dispose_node(*p);
             }
