@@ -205,4 +205,13 @@ namespace chainbase {
 
       return it->second->is_cache_enabled();
    }
+        
+   bool undo_index_is_read_only(uint64_t instance_id) {
+      auto it = s_undo_index_events.find(instance_id);
+      if (it == s_undo_index_events.end()) {
+         return true;
+      }
+      return it->second->is_read_only();
+   }
+
 }  // namespace chainbase

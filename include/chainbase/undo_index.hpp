@@ -25,7 +25,7 @@ namespace chainbase {
    template<typename F>
    struct scope_exit {
     public:
-      scope_exit(F&& f) : _f(f) {}
+      scope_exit(F&& f) : _f(std::move(f)) {}
       scope_exit(const scope_exit&) = delete;
       scope_exit& operator=(const scope_exit&) = delete;
       ~scope_exit() { if(!_canceled) _f(); }
@@ -50,16 +50,25 @@ namespace chainbase {
    };
 
    template<class Tag>
-   struct offset_node_base {
+   struct __attribute__((packed, aligned(4))) offset_node_base {
       offset_node_base() = default;
       offset_node_base(const offset_node_base&) {}
       constexpr offset_node_base& operator=(const offset_node_base&) { return *this; }
-      std::ptrdiff_t _parent;
-      std::ptrdiff_t _left;
-      std::ptrdiff_t _right;
-      int _color;
+      int64_t _parent:42;
+      int64_t _left  :42;
+      int64_t _right :42;
+      int64_t _color :2;
    };
 
+   // --------------------------------------------------------------------------------------
+   // Because the pointers are always aligned to an 4 byte boundary
+   // (so the 2 least significant bits are always 0), we store pointer offsets
+   // shifted by two bits, extending our maximum memory support from 2^41 = 2TB
+   // to 2^43 = 8TB.
+   // A concern could be that `1` is a special value meaning `nullptr`. However we could not
+   // get an offset of 4, since `sizeof(offset_node_base) == 16`, so we could not have
+   // difference between two different `node_ptr` be less than 16.
+   // --------------------------------------------------------------------------------------
    template<class Tag>
    struct offset_node_traits {
       using node = offset_node_base<Tag>;
@@ -68,27 +77,39 @@ namespace chainbase {
       using color = int;
       static node_ptr get_parent(const_node_ptr n) {
          if(n->_parent == 1) return nullptr;
-         return (node_ptr)((char*)n + n->_parent);
+         return (node_ptr)((char*)n + (n->_parent << 2));
       }
       static void set_parent(node_ptr n, node_ptr parent) {
          if(parent == nullptr) n->_parent = 1;
-         else n->_parent = (char*)parent - (char*)n;
+         else {
+            int64_t offset = (char*)parent - (char*)n;
+            assert((offset & 0x3) == 0);
+            n->_parent = offset >> 2;
+         }
       }
       static node_ptr get_left(const_node_ptr n) {
          if(n->_left == 1) return nullptr;
-         return (node_ptr)((char*)n + n->_left);
+         return (node_ptr)((char*)n + (n->_left << 2));
       }
       static void set_left(node_ptr n, node_ptr left) {
          if(left == nullptr) n->_left = 1;
-         else n->_left = (char*)left - (char*)n;
+         else {
+            int64_t offset = (char*)left - (char*)n;
+            assert((offset & 0x3) == 0);
+            n->_left = offset >> 2;
+         }
       }
       static node_ptr get_right(const_node_ptr n) {
          if(n->_right == 1) return nullptr;
-         return (node_ptr)((char*)n + n->_right);
+         return (node_ptr)((char*)n + (n->_right << 2));
       }
       static void set_right(node_ptr n, node_ptr right) {
          if(right == nullptr) n->_right = 1;
-         else n->_right = (char*)right - (char*)n;
+         else {
+            int64_t offset = (char*)right - (char*)n;
+            assert((offset & 0x3) == 0);
+            n->_right = offset >> 2;
+         }
       }
       // red-black tree
       static color get_color(node_ptr n) {
@@ -191,19 +212,21 @@ namespace chainbase {
       // Allow compatible keys to match multi_index
       template<typename K>
       auto find(K&& k) const {
-         undo_index_on_find_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
          if (undo_index_cache_enabled(_instance_id)) {
             bool cached = false;
             auto obj = undo_index_find_in_cache<K, typename Node::value_type>(_instance_id, _database_id, k, cached);
             if (cached) {
                undo_index_on_find_end<K, typename Node::value_type>(_instance_id, _database_id, k, static_cast<const typename Node::value_type *>(obj));
                if (obj) {
-                  return iterator_to(*static_cast<const typename Node::value_type *>(obj));
+                  auto it = iterator_to(*static_cast<const typename Node::value_type *>(obj));
+                  return it;
                } else {
                   return end();
                }
             }
          }
+
+         undo_index_on_find_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
 
          auto iter = base_type::find(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
@@ -321,7 +344,7 @@ namespace chainbase {
          const T& item() const { return *this; }
          uint64_t _mtime = 0; // _monotonic_revision when the node was last modified or created.
       };
-      static constexpr int erased_flag = 2; // 0,1,and -1 are used by the tree
+      static constexpr int erased_flag = -2; // 0,1,and -1 are used by the tree
 
       using indices_type = std::tuple<set_impl<node, Indices>...>;
 
@@ -562,7 +585,7 @@ namespace chainbase {
        private:
          friend class undo_index;
          void save(value_type& obj) {
-            undo_index::get_removed_field(obj) = erased_flag;
+            undo_index::set_removed_field(obj, erased_flag);
             _removed_values.push_front(obj);
          }
          undo_index* _self;
@@ -824,7 +847,7 @@ namespace chainbase {
          // insert all removed_values
          _removed_values.erase_after_and_dispose(_removed_values.before_begin(), get_removed_values_end(undo_info), [this, &undo_info](pointer p) {
             if (p->id < undo_info.old_next_id) {
-               get_removed_field(*p) = 0; // Will be overwritten by tree algorithms, because we're reusing the color.
+               set_removed_field(*p, 0); // Will be overwritten by tree algorithms, because we're reusing the color.
                insert_impl(*p);
                undo_index_on_restore_removed_value(_instance_id, _database_id, &*p);
             } else {
@@ -864,6 +887,12 @@ namespace chainbase {
 
     private:
 
+      static node& to_node(value_type& obj) {
+         return static_cast<node&>(*boost::intrusive::get_parent_from_member(&obj, &value_holder<value_type>::_item));
+      }
+      static node& to_node(const value_type& obj) {
+         return to_node(const_cast<value_type&>(obj));
+      }
       // Removes elements of the last undo session that would be redundant
       // if all the sessions after @c session were squashed.
       //
@@ -1022,12 +1051,6 @@ namespace chainbase {
          _old_values.clear_and_dispose([this](pointer p){ dispose_old(*p); });
          _removed_values.clear_and_dispose([this](pointer p){ dispose_node(*p); });
       }
-      static node& to_node(value_type& obj) {
-         return static_cast<node&>(*boost::intrusive::get_parent_from_member(&obj, &value_holder<value_type>::_item));
-      }
-      static node& to_node(const value_type& obj) {
-         return to_node(const_cast<value_type&>(obj));
-      }
       static old_node& to_old_node(value_type& obj) {
          return static_cast<old_node&>(*boost::intrusive::get_parent_from_member(&obj, &value_holder<value_type>::_item));
       }
@@ -1063,7 +1086,7 @@ namespace chainbase {
             if ( obj.id >= undo_info.old_next_id ) {
                return true;
             }
-            get_removed_field(obj) = erased_flag;
+            set_removed_field(obj, erased_flag);
 
             _removed_values.push_front(obj);
             return false;
@@ -1071,8 +1094,11 @@ namespace chainbase {
          return true;
       }
       // Returns the field indicating whether the node has been removed
-      static int& get_removed_field(const value_type& obj) {
+      static int get_removed_field(const value_type& obj) {
          return static_cast<hook<index0_type, Allocator>&>(to_node(obj))._color;
+      }
+      static void set_removed_field(const value_type& obj, int val) {
+         static_cast<hook<index0_type, Allocator>&>(to_node(obj))._color = val;
       }
       using old_alloc_traits = typename std::allocator_traits<Allocator>::template rebind_traits<old_node>;
       indices_type _indices;

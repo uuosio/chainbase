@@ -8,6 +8,7 @@ namespace chainbase {
             undo_index_events() {}
             virtual uint64_t get_instance_id() const = 0;
             virtual bool is_cache_enabled() const = 0;
+            virtual bool is_read_only() const = 0;
             virtual const void *find_in_cache(uint64_t instance_id, uint64_t database_id, const std::type_info& key_type_info, const std::type_info& value_type_info, const void *key, bool& cached) = 0;
             virtual void on_find_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key) = 0;
             virtual void on_find_end(uint64_t instance_id, uint64_t database_id, const std::type_info& key_type_info, const std::type_info& valeu_type_info, const void *key, const void *obj) = 0;
@@ -35,6 +36,7 @@ namespace chainbase {
     void clear_undo_index_events(uint64_t instance_id);
 
     bool undo_index_cache_enabled(uint64_t instance_id);
+    bool undo_index_is_read_only(uint64_t instance_id);
 
     template<typename K, typename V>
     inline const void *undo_index_find_in_cache(uint64_t instance_id, uint64_t database_id, const K& key, bool& cached) {
