@@ -18,11 +18,6 @@
 #include <type_traits>
 #include <sstream>
 
-#include <functional>
-#include <future>
-#include <atomic>
-#include <vector>
-
 #include "undo_index_events.hpp"
 
 namespace chainbase {
@@ -30,7 +25,7 @@ namespace chainbase {
    template<typename F>
    struct scope_exit {
     public:
-      scope_exit(F&& f) : _f(f) {}
+      scope_exit(F&& f) : _f(std::move(f)) {}
       scope_exit(const scope_exit&) = delete;
       scope_exit& operator=(const scope_exit&) = delete;
       ~scope_exit() { if(!_canceled) _f(); }
@@ -55,16 +50,25 @@ namespace chainbase {
    };
 
    template<class Tag>
-   struct offset_node_base {
+   struct __attribute__((packed, aligned(4))) offset_node_base {
       offset_node_base() = default;
       offset_node_base(const offset_node_base&) {}
       constexpr offset_node_base& operator=(const offset_node_base&) { return *this; }
-      std::ptrdiff_t _parent;
-      std::ptrdiff_t _left;
-      std::ptrdiff_t _right;
-      int _color;
+      int64_t _parent:42;
+      int64_t _left  :42;
+      int64_t _right :42;
+      int64_t _color :2;
    };
 
+   // --------------------------------------------------------------------------------------
+   // Because the pointers are always aligned to an 4 byte boundary
+   // (so the 2 least significant bits are always 0), we store pointer offsets
+   // shifted by two bits, extending our maximum memory support from 2^41 = 2TB
+   // to 2^43 = 8TB.
+   // A concern could be that `1` is a special value meaning `nullptr`. However we could not
+   // get an offset of 4, since `sizeof(offset_node_base) == 16`, so we could not have
+   // difference between two different `node_ptr` be less than 16.
+   // --------------------------------------------------------------------------------------
    template<class Tag>
    struct offset_node_traits {
       using node = offset_node_base<Tag>;
@@ -73,27 +77,39 @@ namespace chainbase {
       using color = int;
       static node_ptr get_parent(const_node_ptr n) {
          if(n->_parent == 1) return nullptr;
-         return (node_ptr)((char*)n + n->_parent);
+         return (node_ptr)((char*)n + (n->_parent << 2));
       }
       static void set_parent(node_ptr n, node_ptr parent) {
          if(parent == nullptr) n->_parent = 1;
-         else n->_parent = (char*)parent - (char*)n;
+         else {
+            int64_t offset = (char*)parent - (char*)n;
+            assert((offset & 0x3) == 0);
+            n->_parent = offset >> 2;
+         }
       }
       static node_ptr get_left(const_node_ptr n) {
          if(n->_left == 1) return nullptr;
-         return (node_ptr)((char*)n + n->_left);
+         return (node_ptr)((char*)n + (n->_left << 2));
       }
       static void set_left(node_ptr n, node_ptr left) {
          if(left == nullptr) n->_left = 1;
-         else n->_left = (char*)left - (char*)n;
+         else {
+            int64_t offset = (char*)left - (char*)n;
+            assert((offset & 0x3) == 0);
+            n->_left = offset >> 2;
+         }
       }
       static node_ptr get_right(const_node_ptr n) {
          if(n->_right == 1) return nullptr;
-         return (node_ptr)((char*)n + n->_right);
+         return (node_ptr)((char*)n + (n->_right << 2));
       }
       static void set_right(node_ptr n, node_ptr right) {
          if(right == nullptr) n->_right = 1;
-         else n->_right = (char*)right - (char*)n;
+         else {
+            int64_t offset = (char*)right - (char*)n;
+            assert((offset & 0x3) == 0);
+            n->_right = offset >> 2;
+         }
       }
       // red-black tree
       static color get_color(node_ptr n) {
@@ -196,44 +212,97 @@ namespace chainbase {
       // Allow compatible keys to match multi_index
       template<typename K>
       auto find(K&& k) const {
-         undo_index_on_find_begin<K, typename Node::value_type>(k);
+         if (undo_index_cache_enabled(_instance_id)) {
+            bool cached = false;
+            auto obj = undo_index_find_in_cache<K, typename Node::value_type>(_instance_id, _database_id, k, cached);
+            if (cached) {
+               undo_index_on_find_end<K, typename Node::value_type>(_instance_id, _database_id, k, static_cast<const typename Node::value_type *>(obj));
+               if (obj) {
+                  auto it = iterator_to(*static_cast<const typename Node::value_type *>(obj));
+                  inc_find_count(*it);
+                  return it;
+               } else {
+                  return end();
+               }
+            }
+         }
+
+         undo_index_on_find_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
+
          auto iter = base_type::find(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
-            undo_index_on_find_end<K, typename Node::value_type>(k, &*iter);
+            inc_find_count(*iter);
+            undo_index_on_find_end<K, typename Node::value_type>(_instance_id, _database_id, k, &*iter);
          } else {
-            undo_index_on_find_end<K, typename Node::value_type>(k, nullptr);
+            undo_index_on_find_end<K, typename Node::value_type>(_instance_id, _database_id, k, nullptr);
          }
          return iter;
       }
       template<typename K>
       auto lower_bound(K&& k) const {
-         undo_index_on_lower_bound_begin<K, typename Node::value_type>(k);
+         undo_index_on_lower_bound_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
          auto iter = base_type::lower_bound(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
-            undo_index_on_lower_bound_end<K, typename Node::value_type>(k, &*iter);
+            inc_find_count(*iter);
+            undo_index_on_lower_bound_end<K, typename Node::value_type>(_instance_id, _database_id, k, &*iter);
          } else {
-            undo_index_on_lower_bound_end<K, typename Node::value_type>(k, nullptr);
+            undo_index_on_lower_bound_end<K, typename Node::value_type>(_instance_id, _database_id, k, nullptr);
          }
          return iter;
       }
       template<typename K>
       auto upper_bound(K&& k) const {
-         undo_index_on_upper_bound_begin<K, typename Node::value_type>(k);
+         undo_index_on_upper_bound_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
          auto iter = base_type::upper_bound(static_cast<K&&>(k), this->key_comp());
          if (iter != end()) {
-            undo_index_on_upper_bound_end<K, typename Node::value_type>(k, &*iter);
+            inc_find_count(*iter);
+            undo_index_on_upper_bound_end<K, typename Node::value_type>(_instance_id, _database_id, k, &*iter);
          } else {
-            undo_index_on_upper_bound_end<K, typename Node::value_type>(k, nullptr);
+            undo_index_on_upper_bound_end<K, typename Node::value_type>(_instance_id, _database_id, k, nullptr);
          }
          return iter;
       }
       template<typename K>
       auto equal_range(K&& k) const {
-         undo_index_on_equal_range_begin<K, typename Node::value_type>(k);
+         undo_index_on_equal_range_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
          auto range = base_type::equal_range(static_cast<K&&>(k), this->key_comp());
-         undo_index_on_equal_range_end<K, typename Node::value_type>(k);
+         undo_index_on_equal_range_end<K, typename Node::value_type>(_instance_id, _database_id, k);
          return range;
       }
+
+      void inc_find_count(const typename Node::value_type& obj) const {
+         if (undo_index_is_read_only(_instance_id)) {
+            return;
+         }
+
+         auto& node = to_node(obj);
+         node._find_count++;
+      }
+
+      static Node& to_node(typename Node::value_type& obj) {
+         return static_cast<Node&>(*boost::intrusive::get_parent_from_member(&obj, &value_holder<typename Node::value_type>::_item));
+      }
+
+      static Node& to_node(const typename Node::value_type& obj) {
+         return to_node(const_cast<typename Node::value_type&>(obj));
+      }
+
+      void set_instance_id(uint64_t instance_id) {
+         _instance_id = instance_id;
+      }
+
+      uint64_t get_instance_id() const {
+         return _instance_id;
+      }
+
+      void set_database_id(uint64_t database_id) {
+         _database_id = database_id;
+      }
+
+      uint64_t get_database_id() const {
+         return _database_id;
+      }
+
       using base_type::begin;
       using base_type::end;
       using base_type::rbegin;
@@ -243,6 +312,10 @@ namespace chainbase {
       using base_type::empty;
       template<typename T, typename Allocator, typename... Indices>
       friend class undo_index;
+
+      private:
+         uint64_t _instance_id = 0; //database instance id
+         uint64_t _database_id = 0;
    };
 
    template<typename T, typename S>
@@ -290,9 +363,11 @@ namespace chainbase {
          template<typename... A>
          explicit node(A&&... a) : value_holder<T>{static_cast<A&&>(a)...} {}
          const T& item() const { return *this; }
+         uint32_t _find_count = 0;
+         uint32_t _modify_count = 0;
          uint64_t _mtime = 0; // _monotonic_revision when the node was last modified or created.
       };
-      static constexpr int erased_flag = 2; // 0,1,and -1 are used by the tree
+      static constexpr int erased_flag = -2; // 0,1,and -1 are used by the tree
 
       using indices_type = std::tuple<set_impl<node, Indices>...>;
 
@@ -370,7 +445,7 @@ namespace chainbase {
       // Exception safety: strong
       template<typename Constructor>
       const value_type& emplace( Constructor&& c ) {
-         undo_index_on_create_begin<id_type, value_type>(_next_id);
+         undo_index_on_create_begin<id_type, value_type>(_instance_id, _database_id, _next_id);
 
          auto p = alloc_traits::allocate(_allocator, 1);
          auto guard0 = scope_exit{[&]{ alloc_traits::deallocate(_allocator, p, 1); }};
@@ -382,7 +457,7 @@ namespace chainbase {
          alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
          auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
          if(!insert_impl<1>(p->_item)) {
-            undo_index_on_create_end<id_type, value_type>(new_id, nullptr);
+            undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
          }
          std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
@@ -391,13 +466,13 @@ namespace chainbase {
          guard1.cancel();
          guard0.cancel();
 
-         undo_index_on_create_end<id_type, value_type>(new_id, &p->_item);
+         undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, &p->_item);
 
          return p->_item;
       }
 
       template<typename Constructor>
-      const value_type& emplace_ex( Constructor&& c ) {
+      const value_type& emplace_without_indexing( Constructor&& c ) {
          auto p = alloc_traits::allocate(_allocator, 1);
          auto new_id = _next_id;
          auto constructor = [&]( value_type& v ) {
@@ -410,56 +485,65 @@ namespace chainbase {
          return p->_item;
       }
 
-      bool create_id_index( std::shared_ptr<std::vector<value_type *>> objs, std::atomic<bool>& error ) {
+      bool create_id_index( const std::vector<value_type *>& objs ) {
          auto& idx = std::get<0>(_indices);
-         int64_t index = 0;
-         for (const auto p : *objs) {
-            index += 1;
-            if (index % 100000 == 0) {
-               printf("create_id_index: %lld\n", index);
-               if (error) return false;
-            }
+         for (const auto p : objs) {
             idx.push_back(*p);
          }
          return true;
       }
 
       template<int N = 0>
-      bool create_other_indices( std::shared_ptr<std::vector<value_type *>> objs, std::vector<std::function<bool(std::atomic<bool>&)>>& results ) {
+      bool create_other_indices( const std::vector<value_type *>& objs ) {
          if constexpr (N < sizeof...(Indices)) {
-            results.emplace_back([this, objs](std::atomic<bool>& has_error){
-               printf("create_other_indices %d %s\n", N, typeid(typename std::tuple_element<N, indices_type>::type).name());
-               auto& idx = std::get<N>(_indices);
-               int64_t index = 0;
-               for (auto p : *objs) {
-                  index += 1;
-                  if (index % 100000 == 0) {
-                     printf("%d: %lld\n", N, index);
-                     if (has_error) return false;
-                  }
-                  auto [iter, inserted] = idx.insert_unique(*p);
-                  if(!inserted) {
-                     printf("+++++++error while indexing: %d\n", N);
-                     has_error = true; 
-                     return false;
-                  }
-               }
+            auto& idx = std::get<N>(_indices);
+            for (auto p : objs) {
+               auto [iter, inserted] = idx.insert_unique(*p);
+               if(!inserted) return false;
+            }
+
+            if(create_other_indices<N+1>(objs)) {
                return true;
-            });
-            return create_other_indices<N + 1>(objs, results);
+            }
+
+            return false;
          }
          return true;
       }
 
-      std::vector<std::function<bool(std::atomic<bool>&)>> create_indices( std::shared_ptr<std::vector<value_type *>> objs ) {
-         std::vector<std::function<bool(std::atomic<bool>&)>> result = {};
-         result.reserve(sizeof...(Indices));
-         result.emplace_back([this, objs](std::atomic<bool>& has_error){
-            return create_id_index(objs, has_error);
-         });
+      bool create_indices( const std::vector<value_type *>& objs ) {
+         if (!create_id_index(objs)) {
+            return false;
+         }
 
-         create_other_indices<1>(objs, result);
-         return result;
+         if (!create_other_indices<1>(objs)) {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "could not create indices, most likely a uniqueness constraint was violated" } );
+            return false;
+         }
+
+         return true;
+      }
+
+      size_t indices_count() const {
+         return sizeof...(Indices);
+      }
+
+      template<int N = 0>
+      bool _walk_indices( std::function<void(size_t index_type, size_t object_pos, const value_type&)> f ) const {
+         if constexpr (N < sizeof...(Indices)) {
+            auto& idx = std::get<N>(_indices);
+            size_t index = 0;
+            for (const auto& obj : idx) {
+               f(N, index, obj);
+               index += 1;
+            }
+            return _walk_indices<N+1>(f);
+         }
+         return true;
+      }
+
+      bool walk_indices( std::function<void(size_t index_type, size_t object_pos, const value_type&)> f ) const {
+         return _walk_indices<0>(f);
       }
 
       // Exception safety: basic.
@@ -467,7 +551,10 @@ namespace chainbase {
       // with another object, it will either be reverted or erased.
       template<typename Modifier>
       void modify( const value_type& obj, Modifier&& m) {
-         undo_index_on_modify_begin<value_type>(&obj);
+         auto& node = to_node(obj);
+         node._modify_count += 1;
+
+         undo_index_on_modify_begin<value_type>(_instance_id, _database_id, &obj);
 
          value_type* backup = on_modify(obj);
          value_type& node_ref = const_cast<value_type&>(obj);
@@ -494,7 +581,7 @@ namespace chainbase {
             (void)old_id;
             assert(obj.id == old_id);
          }
-         undo_index_on_modify_end<value_type>(&obj, success);
+         undo_index_on_modify_end<value_type>(_instance_id, _database_id, &obj, success);
          if(!success)
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not modify object, most likely a uniqueness constraint was violated" } );
       }
@@ -524,7 +611,7 @@ namespace chainbase {
        private:
          friend class undo_index;
          void save(value_type& obj) {
-            undo_index::get_removed_field(obj) = erased_flag;
+            undo_index::set_removed_field(obj, erased_flag);
             _removed_values.push_front(obj);
          }
          undo_index* _self;
@@ -536,13 +623,13 @@ namespace chainbase {
       }
 
       void remove( const value_type& obj ) noexcept {
-         undo_index_on_remove_begin<value_type>(&obj);
+         undo_index_on_remove_begin<value_type>(_instance_id, _database_id, &obj);
          auto& node_ref = const_cast<value_type&>(obj);
          erase_impl(node_ref);
          if(on_remove(node_ref)) {
             dispose_node(node_ref);
          }
-         undo_index_on_remove_end<value_type>(&obj);
+         undo_index_on_remove_end<value_type>(_instance_id, _database_id, &obj);
       }
 
     private:
@@ -637,6 +724,44 @@ namespace chainbase {
          _revision = revision;
       }
 
+      void set_database_id( uint64_t id ) {
+         _database_id = id;
+         _set_database_id(id);
+      }
+
+      template<int N = 0>
+      void _set_database_id( uint64_t database_id ) {
+         if constexpr (N < sizeof...(Indices)) {
+            auto& idx = std::get<N>(_indices);
+            idx.set_database_id(database_id);
+
+            _set_database_id<N+1>(database_id);
+         }
+      }
+
+      uint64_t get_database_id() const {
+         return _database_id;
+      }
+
+      uint64_t get_instance_id() const {
+         return _instance_id;
+      }
+
+      void set_instance_id( uint64_t instance_id ) {
+         _instance_id = instance_id;
+         _set_instance_id(instance_id);
+      }
+
+      template<int N = 0>
+      void _set_instance_id( uint64_t instance_id ) {
+         if constexpr (N < sizeof...(Indices)) {
+            auto& idx = std::get<N>(_indices);
+            idx.set_instance_id(instance_id);
+
+            _set_instance_id<N+1>(instance_id);
+         }
+      }
+
       std::pair<uint64_t, uint64_t> undo_stack_revision_range() const {
          return { _revision - _undo_stack.size(), _revision };
       }
@@ -721,6 +846,7 @@ namespace chainbase {
          auto& by_id = std::get<0>(_indices);
          auto new_ids_iter = by_id.lower_bound(undo_info.old_next_id);
          by_id.erase_and_dispose(new_ids_iter, by_id.end(), [this](pointer p){
+            undo_index_on_remove_value(_instance_id, _database_id, &*p);
             erase_impl<1>(*p);
             dispose_node(*p);
          });
@@ -747,8 +873,9 @@ namespace chainbase {
          // insert all removed_values
          _removed_values.erase_after_and_dispose(_removed_values.before_begin(), get_removed_values_end(undo_info), [this, &undo_info](pointer p) {
             if (p->id < undo_info.old_next_id) {
-               get_removed_field(*p) = 0; // Will be overwritten by tree algorithms, because we're reusing the color.
+               set_removed_field(*p, 0); // Will be overwritten by tree algorithms, because we're reusing the color.
                insert_impl(*p);
+               undo_index_on_restore_removed_value(_instance_id, _database_id, &*p);
             } else {
                dispose_node(*p);
             }
@@ -782,6 +909,13 @@ namespace chainbase {
 
       void compress_last_undo_session() noexcept {
          compress_impl(_undo_stack.back());
+      }
+
+      static node& to_node(value_type& obj) {
+         return static_cast<node&>(*boost::intrusive::get_parent_from_member(&obj, &value_holder<value_type>::_item));
+      }
+      static node& to_node(const value_type& obj) {
+         return to_node(const_cast<value_type&>(obj));
       }
 
     private:
@@ -944,12 +1078,6 @@ namespace chainbase {
          _old_values.clear_and_dispose([this](pointer p){ dispose_old(*p); });
          _removed_values.clear_and_dispose([this](pointer p){ dispose_node(*p); });
       }
-      static node& to_node(value_type& obj) {
-         return static_cast<node&>(*boost::intrusive::get_parent_from_member(&obj, &value_holder<value_type>::_item));
-      }
-      static node& to_node(const value_type& obj) {
-         return to_node(const_cast<value_type&>(obj));
-      }
       static old_node& to_old_node(value_type& obj) {
          return static_cast<old_node&>(*boost::intrusive::get_parent_from_member(&obj, &value_holder<value_type>::_item));
       }
@@ -985,7 +1113,7 @@ namespace chainbase {
             if ( obj.id >= undo_info.old_next_id ) {
                return true;
             }
-            get_removed_field(obj) = erased_flag;
+            set_removed_field(obj, erased_flag);
 
             _removed_values.push_front(obj);
             return false;
@@ -993,8 +1121,11 @@ namespace chainbase {
          return true;
       }
       // Returns the field indicating whether the node has been removed
-      static int& get_removed_field(const value_type& obj) {
+      static int get_removed_field(const value_type& obj) {
          return static_cast<hook<index0_type, Allocator>&>(to_node(obj))._color;
+      }
+      static void set_removed_field(const value_type& obj, int val) {
+         static_cast<hook<index0_type, Allocator>&>(to_node(obj))._color = val;
       }
       using old_alloc_traits = typename std::allocator_traits<Allocator>::template rebind_traits<old_node>;
       indices_type _indices;
@@ -1006,6 +1137,8 @@ namespace chainbase {
       id_type _next_id = 0;
       uint64_t _revision = 0;
       uint64_t _monotonic_revision = 0;
+      uint64_t _database_id = 0;
+      uint64_t _instance_id = 0;
       uint32_t                        _size_of_value_type = sizeof(node);
       uint32_t                        _size_of_this = sizeof(undo_index);
    };

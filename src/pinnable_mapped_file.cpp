@@ -6,6 +6,9 @@
 #include <iostream>
 #include <fstream>
 
+#include <sys/mman.h>
+#include <unistd.h>
+
 #ifdef __linux__
 #include <linux/mman.h>
 #endif
@@ -53,7 +56,8 @@ const std::error_category& chainbase_error_category() {
 pinnable_mapped_file::pinnable_mapped_file(const std::filesystem::path& dir, bool writable, uint64_t shared_file_size, bool allow_dirty, map_mode mode) :
    _data_file_path(std::filesystem::absolute(dir/"shared_memory.bin")),
    _database_name(dir.filename().string()),
-   _writable(writable)
+   _writable(writable),
+   _map_mode(mode)
 {
    if(shared_file_size % _db_size_multiple_requirement) {
       std::string what_str("Database must be mulitple of " + std::to_string(_db_size_multiple_requirement) + " bytes");
@@ -158,10 +162,15 @@ pinnable_mapped_file::pinnable_mapped_file(const std::filesystem::path& dir, boo
       try {
          setup_non_file_mapping();
          load_database_file(sig_ios);
+         _segment_manager = reinterpret_cast<segment_manager*>((char*)_non_file_mapped_mapping+header_size);
 
 #ifndef _WIN32
          if(mode == locked) {
-            if(mlock(_non_file_mapped_mapping, _non_file_mapped_mapping_size)) {
+            size_t page_size = sysconf(_SC_PAGESIZE); // Get the size of a page
+            size_t used_size = _segment_manager->get_size() - _segment_manager->get_free_memory();
+            used_size = (used_size + (page_size-1u))/page_size*page_size;
+            std::cerr << "CHAINBASE: Database \"" << _database_name << ", used size:" << used_size / 1024 / 1024 << " MB" << std::endl;
+            if(mlock(_non_file_mapped_mapping, used_size)) {
                std::string what_str("Failed to mlock database \"" + _database_name + "\"");
                BOOST_THROW_EXCEPTION(std::system_error(make_error_code(db_error_code::no_mlock), what_str));
             }
@@ -176,8 +185,6 @@ pinnable_mapped_file::pinnable_mapped_file(const std::filesystem::path& dir, boo
             set_mapped_file_db_dirty(false);
          throw;
       }
-
-      _segment_manager = reinterpret_cast<segment_manager*>((char*)_non_file_mapped_mapping+header_size);
    }
 }
 
@@ -237,6 +244,11 @@ void pinnable_mapped_file::load_database_file(boost::asio::io_service& sig_ios) 
    time_t t = time(nullptr);
    while(offset != _file_mapped_region.get_size()) {
       memcpy(dst+offset, src+offset, _db_size_multiple_requirement);
+      if (_map_mode == heap) {
+         if (-1 == madvise(src+offset, _db_size_multiple_requirement, MADV_DONTNEED)) {
+            std::cerr << "CHAINBASE: ERROR: madvise failed: " << strerror(errno) << std::endl;
+         }
+      }
       offset += _db_size_multiple_requirement;
 
       if(time(nullptr) != t) {
@@ -267,6 +279,15 @@ void pinnable_mapped_file::save_database_file() {
    while(offset != _file_mapped_region.get_size()) {
       if(!all_zeros(src+offset, _db_size_multiple_requirement))
          memcpy(dst+offset, src+offset, _db_size_multiple_requirement);
+      if (_map_mode == heap) {
+         if (-1 == madvise(dst+offset, _db_size_multiple_requirement, MADV_DONTNEED)) {
+            std::cerr << "CHAINBASE: ERROR: madvise failed: " << strerror(errno) << std::endl;
+         }
+         if (-1 == madvise(src+offset, _db_size_multiple_requirement, MADV_FREE)) {
+            std::cerr << "CHAINBASE: ERROR: madvise failed: " << strerror(errno) << std::endl;
+         }
+      }
+
       offset += _db_size_multiple_requirement;
 
       if(time(nullptr) != t) {

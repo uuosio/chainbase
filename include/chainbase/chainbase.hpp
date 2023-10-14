@@ -155,10 +155,18 @@ namespace chainbase {
          virtual unique_ptr<abstract_session> start_undo_session( bool enabled ) = 0;
 
          virtual int64_t revision()const = 0;
+
+         virtual int64_t get_database_id()const = 0;
+         virtual void    set_database_id( uint64_t database_id ) = 0;
+
+         virtual int64_t get_instance_id()const = 0;
+         virtual void    set_instance_id( uint64_t instance_id ) = 0;
+
          virtual void    undo()const = 0;
          virtual void    squash()const = 0;
          virtual void    commit( int64_t revision )const = 0;
          virtual void    undo_all()const = 0;
+         virtual bool    has_undo_session()const = 0;
          virtual uint32_t type_id()const  = 0;
          virtual uint64_t row_count()const = 0;
          virtual const std::string& type_name()const = 0;
@@ -182,10 +190,18 @@ namespace chainbase {
 
          virtual void     set_revision( uint64_t revision ) override { _base.set_revision( revision ); }
          virtual int64_t  revision()const  override { return _base.revision(); }
+
+         virtual void     set_database_id( uint64_t id ) override { _base.set_database_id( id ); }
+         virtual int64_t  get_database_id()const override { return _base.get_database_id(); }
+
+         virtual void     set_instance_id( uint64_t id ) override { _base.set_instance_id( id ); }
+         virtual int64_t  get_instance_id()const override { return _base.get_instance_id(); }
+
          virtual void     undo()const  override { _base.undo(); }
          virtual void     squash()const  override { _base.squash(); }
          virtual void     commit( int64_t revision )const  override { _base.commit(revision); }
          virtual void     undo_all() const override {_base.undo_all(); }
+         virtual bool     has_undo_session() const override { return _base.has_undo_session(); }
          virtual uint32_t type_id()const override { return BaseIndex::value_type::type_id; }
          virtual uint64_t row_count()const override { return _base.indices().size(); }
          virtual const std::string& type_name() const override { return BaseIndex_name; }
@@ -295,25 +311,31 @@ namespace chainbase {
 
          session start_undo_session( bool enabled );
 
-         int64_t revision()const {
-             if( _index_list.size() == 0 ) return -1;
-             return _index_list[0]->revision();
-         }
-
          void undo();
          void squash();
          void commit( int64_t revision );
          void undo_all();
 
+         int64_t revision()const;
+         void set_revision( uint64_t revision );
 
-         void set_revision( uint64_t revision )
-         {
-             if ( _read_only_mode ) {
-                BOOST_THROW_EXCEPTION( std::logic_error( "attempting to set revision in read-only mode" ) );
-             }
-             for( auto i : _index_list ) i->set_revision( revision );
-         }
+         int64_t get_database_id()const;
+         void set_database_id( uint64_t id );
 
+         int64_t get_instance_id()const;
+         void set_instance_id( uint64_t id );
+
+         pinnable_mapped_file::segment_manager* get_segment_manager();
+         const pinnable_mapped_file::segment_manager* get_segment_manager() const;
+
+         size_t get_free_memory()const;
+
+         bool has_undo_session() const;
+
+         database_index_row_count_multiset row_count_per_index()const;
+
+         void set_read_only_mode();
+         void unset_read_only_mode();
 
          template<typename MultiIndexType>
          void add_index() {
@@ -381,19 +403,6 @@ namespace chainbase {
             auto new_index = new index<index_type>( *idx_ptr );
             _index_map[ type_id ].reset( new_index );
             _index_list.push_back( new_index );
-         }
-
-         pinnable_mapped_file::segment_manager* get_segment_manager() {
-            return _db_file.get_segment_manager();
-         }
-
-         const pinnable_mapped_file::segment_manager* get_segment_manager() const {
-            return _db_file.get_segment_manager();
-         }
-
-         size_t get_free_memory()const
-         {
-            return _db_file.get_segment_manager()->get_free_memory();
          }
 
          template<typename MultiIndexType>
@@ -501,13 +510,13 @@ namespace chainbase {
          }
 
          template<typename ObjectType, typename Constructor>
-         const ObjectType& create_ex( Constructor&& con )
+         const ObjectType& create_without_indexing( Constructor&& con )
          {
              if ( _read_only_mode ) {
                 BOOST_THROW_EXCEPTION( std::logic_error( "attempting to create a record in read-only mode" ) );
              }
              typedef typename get_index_type<ObjectType>::type index_type;
-             return get_mutable_index<index_type>().emplace_ex( std::forward<Constructor>(con) );
+             return get_mutable_index<index_type>().emplace_without_indexing( std::forward<Constructor>(con) );
          }
 
          template<typename ObjectType>
@@ -520,27 +529,7 @@ namespace chainbase {
              return get_mutable_index<index_type>().create_indices( values );
          }
 
-         database_index_row_count_multiset row_count_per_index()const {
-            database_index_row_count_multiset ret;
-            for(const auto& ai_ptr : _index_map) {
-               if(!ai_ptr)
-                  continue;
-               ret.emplace(make_pair(ai_ptr->row_count(), ai_ptr->type_name()));
-            }
-            return ret;
-         }
-
-         void set_read_only_mode() {
-            _read_only_mode = true;
-         }
-
-         void unset_read_only_mode() {
-             if ( _read_only )
-                BOOST_THROW_EXCEPTION( std::logic_error( "attempting to unset read_only_mode while database was opened as read only" ) );
-            _read_only_mode = false;
-         }
-
-      private:
+      protected:
          pinnable_mapped_file                                        _db_file;
          bool                                                        _read_only = false;
 
