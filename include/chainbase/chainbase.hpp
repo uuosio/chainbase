@@ -509,26 +509,6 @@ namespace chainbase {
              return get_mutable_index<index_type>().emplace( std::forward<Constructor>(con) );
          }
 
-         template<typename ObjectType, typename Constructor>
-         const ObjectType& create_without_indexing( Constructor&& con )
-         {
-             if ( _read_only_mode ) {
-                BOOST_THROW_EXCEPTION( std::logic_error( "attempting to create a record in read-only mode" ) );
-             }
-             typedef typename get_index_type<ObjectType>::type index_type;
-             return get_mutable_index<index_type>().emplace_without_indexing( std::forward<Constructor>(con) );
-         }
-
-         template<typename ObjectType>
-         bool create_indices( const std::vector<ObjectType *>& values )
-         {
-             if ( _read_only_mode ) {
-                BOOST_THROW_EXCEPTION( std::logic_error( "attempting to create indexes in read-only mode" ) );
-             }
-             typedef typename get_index_type<ObjectType>::type index_type;
-             return get_mutable_index<index_type>().create_indices( values );
-         }
-
       protected:
          pinnable_mapped_file                                        _db_file;
          bool                                                        _read_only = false;
