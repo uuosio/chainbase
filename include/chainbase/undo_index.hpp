@@ -349,6 +349,10 @@ namespace chainbase {
       using indices_type = std::tuple<set_impl<node, Indices>...>;
 
       using index0_set_type = std::tuple_element_t<0, indices_type>;
+      
+      template<typename Tag>
+      using index_type_by_tag = std::tuple_element_t<find_tag<Tag, Indices...>::value, indices_type>;
+
       using alloc_traits = typename std::allocator_traits<Allocator>::template rebind_traits<node>;
 
       static_assert(std::is_same_v<typename index0_set_type::key_type, id_type>, "first index must be id");
