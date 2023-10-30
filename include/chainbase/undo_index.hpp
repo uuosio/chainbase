@@ -18,6 +18,7 @@
 #include <type_traits>
 #include <sstream>
 
+#include "shared_object.hpp"
 #include "undo_index_events.hpp"
 
 namespace chainbase {
@@ -310,7 +311,10 @@ namespace chainbase {
    template<typename T, typename S, std::size_t N>
    auto propagate_allocator(boost::interprocess::private_node_allocator<T, S, N>& a) { return boost::interprocess::allocator<T, S>{a.get_segment_manager()}; }
    template<typename T, typename S>
-   auto propagate_allocator(chainbase::chainbase_node_allocator<T, S>& a) { return boost::interprocess::allocator<T, S>{a.get_segment_manager()}; }
+   auto propagate_allocator(chainbase::chainbase_node_allocator<T, S>& a) {
+      return shared_object_allocator{a.get_first_allocator(), a.get_second_allocator()};
+   }
+
 
    // Similar to boost::multi_index_container with an undo stack.
    // Indices should be instances of ordered_unique.
@@ -847,6 +851,8 @@ namespace chainbase {
          compress_impl(_undo_stack.back());
       }
 
+      auto& get_allocator() { return _allocator; }
+
     private:
 
       static node& to_node(value_type& obj) {
@@ -1068,6 +1074,7 @@ namespace chainbase {
       list_base<old_node, index0_type> _old_values;
       list_base<node, index0_type> _removed_values;
       rebind_alloc_t<Allocator, node> _allocator;
+
       rebind_alloc_t<Allocator, old_node> _old_values_allocator;
       id_type _next_id = 0;
       uint64_t _revision = 0;

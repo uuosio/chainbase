@@ -29,6 +29,7 @@
 
 #include <chainbase/pinnable_mapped_file.hpp>
 #include <chainbase/shared_cow_string.hpp>
+#include <chainbase/shared_object.hpp>
 #include <chainbase/chainbase_node_allocator.hpp>
 #include <chainbase/undo_index.hpp>
 
