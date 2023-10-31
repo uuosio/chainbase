@@ -88,13 +88,13 @@ namespace chainbase {
          static_cast<F&&>(f)(_data->data, new_size);
       }
       void assign(const char* ptr, std::size_t size) {
+         dec_refcount();
          impl* new_data = (impl*)&*_alloc.allocate(sizeof(impl) + size + 1);
          new_data->reference_count = 1;
          new_data->size = size;
          if(size)
             std::memcpy(new_data->data, ptr, size);
          new_data->data[size] = '\0';
-         dec_refcount();
          _data = new_data;
       }
       void assign(const unsigned char* ptr, std::size_t size) {

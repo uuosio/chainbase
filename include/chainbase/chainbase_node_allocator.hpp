@@ -15,12 +15,11 @@ namespace chainbase {
       using value_type = T;
       using pointer = bip::offset_ptr<T>;
       using segment_manager = pinnable_mapped_file::segment_manager;
-      using allocator_type = bip::allocator<char, pinnable_mapped_file::segment_manager>;
 
-      chainbase_node_allocator(segment_manager* manager) : _manager{manager}, _alloc1(manager), _alloc2(manager) {}
-      chainbase_node_allocator(const chainbase_node_allocator& other) : _manager(other._manager), _alloc1(other._alloc1), _alloc2(other._alloc2) {}
+      chainbase_node_allocator(segment_manager* manager) : _manager{manager}, _alloc1(manager), _alloc2(manager), _alloc3(manager) {}
+      chainbase_node_allocator(const chainbase_node_allocator& other) : _manager(other._manager), _alloc1(other._alloc1), _alloc2(other._alloc2), _alloc3(other._alloc3) {}
       template<typename U>
-      chainbase_node_allocator(const chainbase_node_allocator<U, S>& other) : _manager(other._manager), _alloc1(other._alloc1), _alloc2(other._alloc2) {}
+      chainbase_node_allocator(const chainbase_node_allocator<U, S>& other) : _manager(other._manager), _alloc1(other._alloc1), _alloc2(other._alloc2), _alloc3(other._alloc3) {}
       pointer allocate(std::size_t num) {
          if (num == 1) {
             if (_freelist == nullptr) {
@@ -51,8 +50,18 @@ namespace chainbase {
          swap(_alloc2, tmp);
       }
 
+      void set_third_segment_manager(segment_manager* manager) {
+         _manager3 = manager;
+         auto tmp = allocator_type(manager);
+         swap(_alloc3, tmp);
+      }
+
       segment_manager* get_second_segment_manager() const {
          return _manager2;
+      }
+
+      segment_manager* get_third_segment_manager() const {
+         return _manager3;
       }
 
       bip::offset_ptr<allocator_type> get_first_allocator() {
@@ -61,6 +70,10 @@ namespace chainbase {
 
       bip::offset_ptr<allocator_type> get_second_allocator() {
          return bip::offset_ptr<allocator_type>::pointer_to(_alloc2);
+      }
+
+      bip::offset_ptr<allocator_type> get_third_allocator() {
+         return bip::offset_ptr<allocator_type>::pointer_to(_alloc3);
       }
 
     private:
@@ -82,9 +95,11 @@ namespace chainbase {
       bip::offset_ptr<segment_manager> _manager;
       bip::offset_ptr<list_item> _freelist{};
 
-      segment_manager* _manager2;
+      segment_manager* _manager2 = nullptr;
+      segment_manager* _manager3 = nullptr;
       allocator_type _alloc1;
       allocator_type _alloc2;
+      allocator_type _alloc3;
    };
 
 }  // namepsace chainbase

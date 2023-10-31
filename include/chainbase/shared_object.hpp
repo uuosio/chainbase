@@ -10,49 +10,24 @@
 #include <string>
 
 #include <chainbase/pinnable_mapped_file.hpp>
+#include <chainbase/shared_object_allocator.hpp>
 #include <chainbase/chainbase_node_allocator.hpp>
 
 namespace chainbase {
-   namespace bip = boost::interprocess;
-
-    using allocator_type = bip::allocator<char, chainbase::pinnable_mapped_file::segment_manager>;
-    using allocator_pointer = bip::offset_ptr<allocator_type>;
-
-    class shared_object_allocator: public allocator_type {
-    public:
-        shared_object_allocator(allocator_pointer a1, allocator_pointer a2) 
-        : allocator_type(a1->get_segment_manager()), _alloc1(a1), _alloc2(a2)
-        {
-        }
-
-        shared_object_allocator(shared_object_allocator&&) = delete;
-        shared_object_allocator(const shared_object_allocator&) = delete;
-        shared_object_allocator& operator=(shared_object_allocator&&) = delete;
-        shared_object_allocator& operator=(const shared_object_allocator&) = delete;
-
-        allocator_pointer get_first_allocator() { return _alloc1; }
-        allocator_pointer get_second_allocator() { return _alloc2; }
-
-    private:
-        allocator_pointer _alloc1;
-        allocator_pointer _alloc2;
-    };
+    namespace bip = boost::interprocess;
 
     template<typename T>
     class shared_object {
     public:        
-        // !!alloc must be a persistent value in a database
         explicit shared_object(shared_object_allocator& alloc)
-        : _data_ptr_offset(0), _alloc(alloc.get_second_allocator())  {
+        : _data_ptr_offset(0), _alloc(alloc.get_second_allocator()) {
         }
 
-        shared_object(const shared_object& other) : _alloc(other._alloc) {
-            if (other._data_ptr_offset) {
-                _alloc = other._alloc;
-                auto *data = new ((T *)&*_alloc->allocate(sizeof(T))) T{*_alloc};
-                *data = other.get();
-                set_offset(data);
-            }
+        shared_object(allocator_pointer alloc) : _data_ptr_offset(0), _alloc(alloc)  {
+        }
+
+        shared_object(const shared_object& other) {
+            _new(other);
         }
 
         shared_object(shared_object&& other) : _data_ptr_offset(other._data_ptr_offset), _alloc(other._alloc) {
@@ -60,7 +35,8 @@ namespace chainbase {
         }
 
         shared_object& operator=(const shared_object& other) {
-            *this = shared_object{other};
+            _free();
+            _new(other);
             return *this;
         }
 
@@ -76,10 +52,19 @@ namespace chainbase {
             return *this;
         }
 
+        void _new(const shared_object& other) {
+            _alloc = other._alloc;
+            if (other._data_ptr_offset) {
+                auto *data = new ((T *)&*_alloc->allocate(sizeof(T))) T{*_alloc};
+                *data = other.get();
+                set_offset(data);
+            }
+        }
+
         void _free() {
             if (_data_ptr_offset) {
                 auto& obj = get();
-                get().~T();
+                obj.~T();
                 _alloc->deallocate((char*)&obj, sizeof(T));
                 _data_ptr_offset = 0;
                 _alloc = nullptr;
