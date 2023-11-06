@@ -90,6 +90,8 @@ namespace chainbase {
         bool operator!=(const shared_object& rhs) const { return !(*this == rhs); }
 
         const allocator_type& get_allocator() const { return *_alloc; }
+        const allocator_pointer get_allocator_ptr() const { return _alloc; }
+
         chainbase::pinnable_mapped_file::segment_manager* get_segment_manager() const {
             auto *_manager = _alloc->get_segment_manager();
             return _manager;
