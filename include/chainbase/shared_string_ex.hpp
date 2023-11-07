@@ -93,22 +93,32 @@ namespace chainbase {
       }
 
       void resize(std::size_t new_size, boost::container::default_init_t) {
+         dec_refcount();
+         _data_ptr_offset = 0;
+         if (new_size == 0) {
+            return;
+         }
          impl* new_data = (impl*)&*_alloc->allocate(sizeof(impl) + new_size + 1);
          new_data->reference_count = 1;
          new_data->size = new_size;
          new_data->data[new_size] = '\0';
-         dec_refcount();
          set_offset(new_data);
       }
 
       template<typename F>
       void resize_and_fill(std::size_t new_size, F&& f) {
          resize(new_size, boost::container::default_init);
-         static_cast<F&&>(f)(_impl()->data, new_size);
+         if (new_size > 0) {
+            static_cast<F&&>(f)(_impl()->data, new_size);
+         }
       }
 
       void assign(const char* ptr, std::size_t size) {
          dec_refcount();
+         _data_ptr_offset = 0;
+         if (size == 0) {
+            return;
+         }
          impl* new_data = (impl*)&*_alloc->allocate(sizeof(impl) + size + 1);
          new_data->reference_count = 1;
          new_data->size = size;
@@ -215,6 +225,7 @@ namespace chainbase {
       void dec_refcount() {
          if(_impl() && --_impl()->reference_count == 0) {
             _alloc->deallocate((char*)_impl(), sizeof(impl) + _impl()->size + 1);
+            _data_ptr_offset = 0;
          }
       }
       uint64_t _data_ptr_offset = 0;
