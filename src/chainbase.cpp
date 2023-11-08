@@ -175,13 +175,13 @@ namespace chainbase {
       if (event == nullptr) {
          BOOST_THROW_EXCEPTION( std::runtime_error("event is nullptr") );
       }
-
-      auto it = s_undo_index_events.find(event->get_instance_id());
+      uint64_t instance_id = event->get_instance_id();
+      auto it = s_undo_index_events.find(instance_id);
       if (it != s_undo_index_events.end()) {
          BOOST_THROW_EXCEPTION( std::runtime_error("instance id already exists") );
       }
 
-      s_undo_index_events.emplace(event->get_instance_id(), event);
+      s_undo_index_events.emplace(instance_id, event);
    }
 
    void clear_undo_index_events(uint64_t instance_id) {

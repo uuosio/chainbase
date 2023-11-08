@@ -33,6 +33,13 @@ namespace chainbase {
       }
 
       shared_string_ex(const allocator_pointer& alloc) : _data_ptr_offset(), _alloc(alloc) {}
+
+      shared_string_ex(const allocator_pointer& alloc, uint64_t data_ptr_offset)
+      : _data_ptr_offset(data_ptr_offset),
+      _alloc(alloc) {
+
+      }
+
       template<typename Iter>
       explicit shared_string_ex(Iter begin, Iter end, const allocator_pointer& alloc) : shared_string_ex(alloc) {
          std::size_t size = std::distance(begin, end);
@@ -73,7 +80,14 @@ namespace chainbase {
       }
 
       shared_string_ex& operator=(const shared_string_ex& other) {
-         *this = shared_string_ex{other};
+         if (this != &other) {
+            dec_refcount();
+            _data_ptr_offset = other._data_ptr_offset;
+            _alloc = other._alloc;
+            if (_data_ptr_offset != 0) {
+               ++_impl()->reference_count;
+            }
+         }
          return *this;
       }
 
@@ -219,6 +233,10 @@ namespace chainbase {
             BOOST_THROW_EXCEPTION( std::runtime_error("shared_string_ex: invalid pointer") );
          }
          _data_ptr_offset = uint64_t(ptr) - uint64_t(manager);
+      }
+
+      void set_offset(uint64_t data_ptr_offset) {
+         _data_ptr_offset = data_ptr_offset;
       }
 
     private:

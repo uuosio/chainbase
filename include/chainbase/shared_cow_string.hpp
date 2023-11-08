@@ -60,7 +60,14 @@ namespace chainbase {
          other._data = nullptr;
       }
       shared_cow_string& operator=(const shared_cow_string& other) {
-         *this = shared_cow_string{other};
+         // *this = shared_cow_string{other};
+         if (this != &other) {
+            dec_refcount();
+            _data = other._data;
+            if (_data != nullptr) {
+               ++_data->reference_count;
+            }
+         }
          return *this;
       }
       shared_cow_string& operator=(shared_cow_string&& other) {

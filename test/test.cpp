@@ -127,4 +127,133 @@ BOOST_AUTO_TEST_CASE( open_and_create ) {
    BOOST_REQUIRE_EQUAL( new_book.b, copy_new_book.b );
 }
 
+BOOST_AUTO_TEST_CASE( test_shared_string ) {
+   temp_directory temp_dir;
+   const auto& temp = temp_dir.path();
+   std::cerr << temp << " \n";
+
+   chainbase::database db(temp, database::read_write, 1024*1024*8);
+   db.add_index< book_index >();
+
+   auto& idx = db.get_mutable_index< book_index >();
+   auto alloc = idx.get_allocator().get_first_allocator();
+
+   size_t free_memory = db.get_free_memory();
+   {
+      auto s1 = shared_cow_string(*alloc);
+      auto s2 = shared_cow_string(*alloc);
+
+      // test assign method
+      s1.assign("", 0);
+      BOOST_TEST(nullptr == s1.data());
+
+      s1.assign("hello", 5);
+
+      // test resize
+      s1.resize(0, boost::container::default_init);
+      BOOST_TEST(db.get_free_memory() == free_memory);
+
+      s1.assign("hello", 5);
+
+      const char *data_old = s1.data();
+      BOOST_TEST(nullptr != data_old);
+
+      // test self assignment
+      s1 = s1; 
+      BOOST_TEST(data_old == s1.data());
+
+      // test self move assignment
+      s1 = std::move(s1);
+      BOOST_TEST(data_old == s1.data());
+
+      // test normal assigment
+      s2 = s1;
+      BOOST_TEST(data_old == s2.data());
+
+      //test move assignment
+      s2 = std::move(s1);
+      BOOST_TEST(data_old == s2.data());
+      BOOST_TEST(s1.data() == nullptr);
+
+      // test move constructor
+      auto s3 = shared_cow_string(std::move(s2));
+      BOOST_TEST(data_old == s3.data());
+      BOOST_TEST(s2.data() == nullptr);
+   }
+   BOOST_TEST(free_memory == db.get_free_memory());
+
+   {
+      auto s1 = shared_string_ex(alloc);
+      auto s2 = shared_string_ex(alloc);
+
+      // test assign method
+      s1.assign("", 0);
+      BOOST_TEST(nullptr == s1.data());
+
+      s1.assign("hello", 5);
+      const char *data_old = s1.data();
+      BOOST_TEST(nullptr != data_old);
+
+      // test self assignment
+      s1 = s1; 
+      BOOST_TEST(data_old == s1.data());
+
+      // test self move assignment
+      s1 = std::move(s1);
+      BOOST_TEST(data_old == s1.data());
+
+      // test normal assigment
+      s2 = s1;
+      BOOST_TEST(data_old == s2.data());
+
+      //test move assignment
+      s2 = std::move(s1);
+      BOOST_TEST(data_old == s2.data());
+      BOOST_TEST(s1.data() == nullptr);
+
+      // test move constructor
+      auto s3 = shared_string_ex(std::move(s2));
+      BOOST_TEST(data_old == s3.data());
+      BOOST_TEST(s2.data() == nullptr);
+   }
+   BOOST_TEST(free_memory == db.get_free_memory());
+
+   {
+      auto s1 = shared_object<shared_cow_string>(alloc);
+      auto s2 = shared_object<shared_cow_string>(alloc);
+
+      // test assign method
+      s1->assign("", 0);
+      BOOST_TEST(nullptr == s1->data());
+
+      s1->assign("hello", 5);
+      const char *data_old = s1->data();
+      BOOST_TEST(nullptr != data_old);
+
+      // test self assignment
+      s1 = s1; 
+      BOOST_TEST(data_old == s1->data());
+
+      // test self move assignment
+      s1 = std::move(s1);
+      BOOST_TEST(data_old == s1->data());
+
+      // test normal assigment
+      s2 = s1;
+      BOOST_TEST(data_old == s2->data());
+
+      //test move assignment
+      s2 = std::move(s1);
+      BOOST_TEST(data_old == s2->data());
+      BOOST_TEST(s1.get_offset() == 0);
+
+      // test move constructor
+      auto s3 = shared_object<shared_cow_string>(std::move(s2));
+      BOOST_TEST(data_old == s3->data());
+      BOOST_TEST(s2.get_offset() == 0);
+   }
+   BOOST_TEST(free_memory == db.get_free_memory());
+   return;
+}
+
 // BOOST_AUTO_TEST_SUITE_END()

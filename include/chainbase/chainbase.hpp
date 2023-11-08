@@ -412,8 +412,7 @@ namespace chainbase {
          {
             typedef generic_index<MultiIndexType> index_type;
             typedef index_type*                   index_type_ptr;
-            assert( _index_map.size() > index_type::value_type::type_id );
-            assert( _index_map[index_type::value_type::type_id] );
+            validate_index<typename index_type::value_type>();
             return *index_type_ptr( _index_map[index_type::value_type::type_id]->get() );
          }
 
@@ -422,8 +421,7 @@ namespace chainbase {
          {
             typedef generic_index<MultiIndexType> index_type;
             typedef index_type*                   index_type_ptr;
-            assert( _index_map.size() > index_type::value_type::type_id );
-            assert( _index_map[index_type::value_type::type_id] );
+            validate_index<typename index_type::value_type>();
             return index_type_ptr( _index_map[index_type::value_type::type_id]->get() )->indices().template get<ByIndex>();
          }
 
@@ -435,9 +433,19 @@ namespace chainbase {
             }
             typedef generic_index<MultiIndexType> index_type;
             typedef index_type*                   index_type_ptr;
-            assert( _index_map.size() > index_type::value_type::type_id );
-            assert( _index_map[index_type::value_type::type_id] );
+            validate_index<typename index_type::value_type>();
             return *index_type_ptr( _index_map[index_type::value_type::type_id]->get() );
+         }
+
+         template<typename ObjectType>
+         void validate_index() const {
+            if( _index_map.size() > ObjectType::type_id && _index_map[ObjectType::type_id]) {
+               return;
+            }
+
+            std::stringstream ss;
+            ss << "index not found in database:" << boost::core::demangle( typeid( ObjectType  ).name() );
+            BOOST_THROW_EXCEPTION( std::logic_error( ss.str() ) );
          }
 
          template< typename ObjectType, typename IndexedByType, typename CompatibleKey >

@@ -35,8 +35,10 @@ namespace chainbase {
         }
 
         shared_object& operator=(const shared_object& other) {
-            _free();
-            _new(other);
+            if (this != &other) {
+                _free();
+                _new(other);
+            }
             return *this;
         }
 
@@ -122,7 +124,6 @@ namespace chainbase {
             return &get();
         }
 
-    private:
         uint64_t get_offset() const {
             return _data_ptr_offset;
         }
