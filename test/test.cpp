@@ -142,7 +142,7 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
    {
       auto s1 = shared_cow_string(*alloc);
       auto s2 = shared_cow_string(*alloc);
-
+      shared_cow_string *s1_ptr = &s1;
       // test assign method
       s1.assign("", 0);
       BOOST_TEST(nullptr == s1.data());
@@ -159,11 +159,11 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
       BOOST_TEST(nullptr != data_old);
 
       // test self assignment
-      s1 = s1; 
+      *s1_ptr = s1;
       BOOST_TEST(data_old == s1.data());
 
       // test self move assignment
-      s1 = std::move(s1);
+      *s1_ptr = std::move(s1);
       BOOST_TEST(data_old == s1.data());
 
       // test normal assigment
@@ -185,6 +185,7 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
    {
       auto s1 = shared_string_ex(alloc);
       auto s2 = shared_string_ex(alloc);
+      shared_string_ex *s1_ptr = &s1;
 
       // test assign method
       s1.assign("", 0);
@@ -195,11 +196,11 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
       BOOST_TEST(nullptr != data_old);
 
       // test self assignment
-      s1 = s1; 
+      *s1_ptr = s1; 
       BOOST_TEST(data_old == s1.data());
 
       // test self move assignment
-      s1 = std::move(s1);
+      *s1_ptr = std::move(s1);
       BOOST_TEST(data_old == s1.data());
 
       // test normal assigment
@@ -221,6 +222,7 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
    {
       auto s1 = shared_object<shared_cow_string>(alloc);
       auto s2 = shared_object<shared_cow_string>(alloc);
+      shared_object<shared_cow_string> *s1_ptr = &s1;
 
       // test assign method
       s1->assign("", 0);
@@ -231,11 +233,11 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
       BOOST_TEST(nullptr != data_old);
 
       // test self assignment
-      s1 = s1; 
+      *s1_ptr = s1; 
       BOOST_TEST(data_old == s1->data());
 
       // test self move assignment
-      s1 = std::move(s1);
+      *s1_ptr = std::move(s1);
       BOOST_TEST(data_old == s1->data());
 
       // test normal assigment
