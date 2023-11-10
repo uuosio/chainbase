@@ -258,4 +258,42 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
    return;
 }
 
+BOOST_AUTO_TEST_CASE( test_create_ex ) {
+   temp_directory temp_dir;
+   const auto& temp = temp_dir.path();
+   std::cerr << temp << " \n";
+
+   chainbase::database db(temp, database::read_write, 1024*1024*8);
+   db.add_index< book_index >();
+   
+   auto& idx = db.get_mutable_index< book_index >();
+   idx.init_next_id(chainbase::max_database_object_count, 0);
+
+   auto session = db.start_undo_session(true);
+   const auto& new_book1 = db.create<book>( []( book& b ) {
+      b.a = 1;
+      b.b = 2;
+   } );
+   BOOST_TEST(!idx.is_mature_object(new_book1));
+
+   const auto& new_book2 = db.create_ex<book>( []( book& b ) {
+      b.a = 3;
+      b.b = 4;
+   } );
+   BOOST_TEST(idx.is_mature_object(new_book2));
+
+   const auto& copy_new_book = db.get( book::id_type(0) );
+   BOOST_TEST(copy_new_book.id == new_book2.id);
+
+   db.modify( copy_new_book, [&]( book& b ) {
+      // b.a = 5;
+      // b.b = 6;
+   });
+
+   BOOST_TEST(!idx.is_mature_object(copy_new_book));
+
+   session.squash();
+   BOOST_TEST(idx.is_mature_object(copy_new_book));
+}
+
 // BOOST_AUTO_TEST_SUITE_END()

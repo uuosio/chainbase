@@ -22,6 +22,7 @@
 #include "undo_index_events.hpp"
 
 namespace chainbase {
+   static uint64_t max_database_object_count = 10*1000ULL*1000ULL*1000ULL*1000ULL;
 
    template<typename F>
    struct scope_exit {
@@ -427,15 +428,25 @@ namespace chainbase {
          uint64_t ctime = 0; // _monotonic_revision at the point the undo_state was created
       };
 
-      void init_next_id(int64_t next_id) {
-         if (_next_id != 0) {
+      void init_next_id(int64_t next_id, int64_t next_id2) {
+         if (_next_id != 0 || _next_id2 != 0) {
             BOOST_THROW_EXCEPTION( std::logic_error("next_id already initialized") );
          }
+
+         if (next_id2 + max_database_object_count > next_id) {
+            BOOST_THROW_EXCEPTION( std::logic_error("invalid next_id2 value") );
+         }
+
          _next_id = next_id;
+         _next_id2 = next_id2;
       }
 
       int64_t get_next_id() const {
          return _next_id._id;
+      }
+      
+      int64_t get_next_id2() const {
+         return _next_id2._id;
       }
 
       // Exception safety: strong
@@ -452,17 +463,39 @@ namespace chainbase {
          };
          alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
          auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
-         if(!insert_impl<1>(p->_item)) {
+         if(!insert_impl<0>(p->_item)) {
             undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
          }
-         std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
          on_create(p->_item);
          ++_next_id;
          guard1.cancel();
          guard0.cancel();
 
          undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, &p->_item);
+
+         return p->_item;
+      }
+
+      // Exception safety: strong
+      // empalce object which can only be undo on modification or remove
+      template<typename Constructor>
+      const value_type& emplace_ex( Constructor&& c ) {
+         auto p = alloc_traits::allocate(_allocator, 1);
+         auto guard0 = scope_exit{[&]{ alloc_traits::deallocate(_allocator, p, 1); }};
+         auto new_id = _next_id2;
+         auto constructor = [&]( value_type& v ) {
+            v.id = new_id;
+            c( v );
+         };
+         alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
+         auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
+         if(!insert_impl<0>(p->_item)) {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
+         }
+         ++_next_id2;
+         guard1.cancel();
+         guard0.cancel();
 
          return p->_item;
       }
@@ -570,6 +603,15 @@ namespace chainbase {
             dispose_node(node_ref);
          }
          undo_index_on_remove_end<value_type>(_instance_id, _database_id, &obj);
+      }
+
+      void remove_ex( const value_type& obj ) noexcept {
+         if (!is_mature_object(obj)) {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "can not remove object directly while it's in the undo_stack" } );
+         }
+         auto& node_ref = const_cast<value_type&>(obj);
+         erase_impl(node_ref);
+         dispose_node(node_ref);
       }
 
     private:
@@ -767,6 +809,23 @@ namespace chainbase {
          return { { get<0>().lower_bound(_undo_stack.back().old_next_id), get<0>().end() },
                   { _old_values.begin(), get_old_values_end(_undo_stack.back()) },
                   { _removed_values.begin(), get_removed_values_end(_undo_stack.back()) } };
+      }
+
+      bool is_mature_object(const value_type& obj) const {
+         if(_undo_stack.empty()) {
+            return true;
+         }
+
+         auto& undo_info = _undo_stack.front();
+         if ( to_node(obj)._mtime >= undo_info.ctime ) {
+            return false;
+         }
+
+         if ( obj.id >= undo_info.old_next_id ) {
+            return false;
+         }
+
+         return true;
       }
 
       auto begin() const { return get<0>().begin(); }
@@ -1023,6 +1082,10 @@ namespace chainbase {
          return static_cast<old_node&>(*boost::intrusive::get_parent_from_member(&obj, &value_holder<value_type>::_item));
       }
 
+      static const old_node& to_old_node(const value_type& obj) {
+         return static_cast<const old_node&>(*boost::intrusive::get_parent_from_member(&obj, &value_holder<value_type>::_item));
+      }
+
       auto get_old_values_end(const undo_state& info) {
          if(info.old_values_end == nullptr) {
             return _old_values.end();
@@ -1077,6 +1140,7 @@ namespace chainbase {
 
       rebind_alloc_t<Allocator, old_node> _old_values_allocator;
       id_type _next_id = 0;
+      id_type _next_id2 = 0;
       uint64_t _revision = 0;
       uint64_t _monotonic_revision = 0;
       uint64_t _database_id = 0;
