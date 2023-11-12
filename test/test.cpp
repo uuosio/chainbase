@@ -267,7 +267,7 @@ BOOST_AUTO_TEST_CASE( test_create_ex ) {
    db.add_index< book_index >();
    
    auto& idx = db.get_mutable_index< book_index >();
-   idx.init_next_id(chainbase::max_database_object_count, 0);
+   idx.init_next_id(0);
 
    auto session = db.start_undo_session(true);
    const auto& new_book1 = db.create<book>( []( book& b ) {
@@ -276,7 +276,7 @@ BOOST_AUTO_TEST_CASE( test_create_ex ) {
    } );
    BOOST_TEST(!idx.is_mature_object(new_book1));
 
-   const auto& new_book2 = db.create_ex<book>( []( book& b ) {
+   const auto& new_book2 = db.create_without_undo<book>( []( book& b ) {
       b.a = 3;
       b.b = 4;
    } );
@@ -294,6 +294,23 @@ BOOST_AUTO_TEST_CASE( test_create_ex ) {
 
    session.squash();
    BOOST_TEST(idx.is_mature_object(copy_new_book));
+
+{
+   auto session = db.start_undo_session(true);
+   db.remove(copy_new_book);
+   session.undo();
+   const auto *new_book_ptr = db.find( book::id_type(0) );
+   BOOST_TEST(new_book_ptr != nullptr);
+}
+
+{
+   auto session = db.start_undo_session(true);
+   db.remove_without_undo(copy_new_book);
+   session.undo();
+   const auto *new_book_ptr = db.find( book::id_type(0) );
+   BOOST_TEST(new_book_ptr == nullptr);
+}
+
 }
 
 // BOOST_AUTO_TEST_SUITE_END()

@@ -22,7 +22,7 @@
 #include "undo_index_events.hpp"
 
 namespace chainbase {
-   static uint64_t max_database_object_count = 10*1000ULL*1000ULL*1000ULL*1000ULL;
+   static int64_t max_create_without_undo_next_id = 10*1000ULL*1000ULL*1000ULL*1000ULL;
 
    template<typename F>
    struct scope_exit {
@@ -428,25 +428,21 @@ namespace chainbase {
          uint64_t ctime = 0; // _monotonic_revision at the point the undo_state was created
       };
 
-      void init_next_id(int64_t next_id, int64_t next_id2) {
-         if (_next_id != 0 || _next_id2 != 0) {
+      void init_next_id(int64_t next_id) {
+         if (_next_id != 0) {
             BOOST_THROW_EXCEPTION( std::logic_error("next_id already initialized") );
          }
-
-         if (next_id2 + max_database_object_count > next_id) {
-            BOOST_THROW_EXCEPTION( std::logic_error("invalid next_id2 value") );
-         }
-
-         _next_id = next_id;
-         _next_id2 = next_id2;
+         _create_without_undo_next_id = next_id;
+         _next_id = next_id + max_create_without_undo_next_id;
+         _initial_next_id = next_id;
       }
 
       int64_t get_next_id() const {
          return _next_id._id;
       }
       
-      int64_t get_next_id2() const {
-         return _next_id2._id;
+      int64_t get_create_without_undo_next_id() const {
+         return _create_without_undo_next_id._id;
       }
 
       // Exception safety: strong
@@ -463,9 +459,17 @@ namespace chainbase {
          };
          alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
          auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
-         if(!insert_impl<0>(p->_item)) {
-            undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
-            BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
+         if (_create_without_undo_next_id == -1) {
+            if(!insert_impl<1>(p->_item)) {
+               undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
+               BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
+            }
+            std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
+         } else {
+            if(!insert_impl<0>(p->_item)) {
+               undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
+               BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
+            }
          }
          on_create(p->_item);
          ++_next_id;
@@ -480,10 +484,16 @@ namespace chainbase {
       // Exception safety: strong
       // empalce object which can only be undo on modification or remove
       template<typename Constructor>
-      const value_type& emplace_ex( Constructor&& c ) {
+      const value_type& emplace_without_undo( Constructor&& c ) {
+         if (_create_without_undo_next_id == -1) {
+            if (_undo_stack.empty()) {
+               return emplace(c);
+            }
+            BOOST_THROW_EXCEPTION( std::logic_error{ "can not emplace_without_undo object directly while _create_without_undo_next_id is not initialized" } );
+         }
          auto p = alloc_traits::allocate(_allocator, 1);
          auto guard0 = scope_exit{[&]{ alloc_traits::deallocate(_allocator, p, 1); }};
-         auto new_id = _next_id2;
+         auto new_id = _create_without_undo_next_id;
          auto constructor = [&]( value_type& v ) {
             v.id = new_id;
             c( v );
@@ -493,7 +503,10 @@ namespace chainbase {
          if(!insert_impl<0>(p->_item)) {
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
          }
-         ++_next_id2;
+         ++_create_without_undo_next_id;
+         if (_create_without_undo_next_id >= _initial_next_id + max_create_without_undo_next_id) {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "_create_without_undo_next_id overflow" } );
+         }
          guard1.cancel();
          guard0.cancel();
 
@@ -605,7 +618,7 @@ namespace chainbase {
          undo_index_on_remove_end<value_type>(_instance_id, _database_id, &obj);
       }
 
-      void remove_ex( const value_type& obj ) noexcept {
+      void remove_without_undo( const value_type& obj ) noexcept {
          if (!is_mature_object(obj)) {
             BOOST_THROW_EXCEPTION( std::logic_error{ "can not remove object directly while it's in the undo_stack" } );
          }
@@ -1140,7 +1153,8 @@ namespace chainbase {
 
       rebind_alloc_t<Allocator, old_node> _old_values_allocator;
       id_type _next_id = 0;
-      id_type _next_id2 = 0;
+      id_type _create_without_undo_next_id = -1;
+      int64_t _initial_next_id = 0;
       uint64_t _revision = 0;
       uint64_t _monotonic_revision = 0;
       uint64_t _database_id = 0;

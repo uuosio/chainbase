@@ -510,13 +510,13 @@ namespace chainbase {
          }
 
          template<typename ObjectType>
-         void remove_ex( const ObjectType& obj )
+         void remove_without_undo( const ObjectType& obj )
          {
              if ( _read_only_mode ) {
                 BOOST_THROW_EXCEPTION( std::logic_error( "attempting to remove a record in read-only mode" ) );
              }
              typedef typename get_index_type<ObjectType>::type index_type;
-             return get_mutable_index<index_type>().remove_ex( obj );
+             return get_mutable_index<index_type>().remove_without_undo( obj );
          }
 
          template<typename ObjectType, typename Constructor>
@@ -531,13 +531,13 @@ namespace chainbase {
 
          // empalce object which can only be undo on modification or remove
          template<typename ObjectType, typename Constructor>
-         const ObjectType& create_ex( Constructor&& con )
+         const ObjectType& create_without_undo( Constructor&& con )
          {
              if ( _read_only_mode ) {
                 BOOST_THROW_EXCEPTION( std::logic_error( "attempting to create a record in read-only mode" ) );
              }
              typedef typename get_index_type<ObjectType>::type index_type;
-             return get_mutable_index<index_type>().emplace_ex( std::forward<Constructor>(con) );
+             return get_mutable_index<index_type>().emplace_without_undo( std::forward<Constructor>(con) );
          }
 
       protected:
