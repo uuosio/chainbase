@@ -127,9 +127,12 @@ namespace chainbase {
          }
       }
 
-      void assign(const char* ptr, std::size_t size) {
+      void assign(const char* ptr, std::size_t size, const allocator_pointer alloc = nullptr) {
          dec_refcount();
          _data_ptr_offset = 0;
+         if (alloc != nullptr && _alloc != alloc) {
+            _alloc = alloc;
+         }
          if (size == 0) {
             return;
          }
@@ -143,8 +146,8 @@ namespace chainbase {
          set_offset(new_data);
       }
 
-      void assign(const unsigned char* ptr, std::size_t size) {
-         assign((char*)ptr, size);
+      void assign(const unsigned char* ptr, std::size_t size, const allocator_pointer alloc = nullptr) {
+         assign((char*)ptr, size, alloc);
       }
 
       const char * data() const {
@@ -157,7 +160,6 @@ namespace chainbase {
       impl *_impl() const {
          if (get_offset() == 0) {
             return nullptr;
-            //BOOST_THROW_EXCEPTION( std::runtime_error("shared_string: invalid data pointer") );
          }
          return reinterpret_cast<impl*>(uint64_t(get_segment_manager()) + get_offset());
       }
