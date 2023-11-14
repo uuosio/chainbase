@@ -434,7 +434,11 @@ namespace chainbase {
          }
          _create_without_undo_next_id = next_id;
          _next_id = next_id + max_create_without_undo_next_id;
-         _initial_next_id = next_id;
+         _first_next_id = next_id;
+      }
+      
+      int64_t get_first_next_id() const {
+         return _first_next_id;
       }
 
       int64_t get_next_id() const {
@@ -459,7 +463,7 @@ namespace chainbase {
          };
          alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
          auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
-         if (_create_without_undo_next_id == -1) {
+         if (_create_without_undo_next_id == id_type(-1)) {
             if(!insert_impl<1>(p->_item)) {
                undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
                BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
@@ -485,7 +489,7 @@ namespace chainbase {
       // empalce object which can only be undo on modification or remove
       template<typename Constructor>
       const value_type& emplace_without_undo( Constructor&& c ) {
-         if (_create_without_undo_next_id == -1) {
+         if (_create_without_undo_next_id == id_type(-1)) {
             if (_undo_stack.empty()) {
                return emplace(c);
             }
@@ -504,8 +508,8 @@ namespace chainbase {
             BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
          }
          ++_create_without_undo_next_id;
-         if (_create_without_undo_next_id >= _initial_next_id + max_create_without_undo_next_id) {
-            BOOST_THROW_EXCEPTION( std::logic_error{ "_create_without_undo_next_id overflow" } );
+         if (_create_without_undo_next_id >= _first_next_id + max_create_without_undo_next_id) {
+            BOOST_THROW_EXCEPTION( std::runtime_error{ "_create_without_undo_next_id overflow" } );
          }
          guard1.cancel();
          guard0.cancel();
@@ -1153,8 +1157,8 @@ namespace chainbase {
 
       rebind_alloc_t<Allocator, old_node> _old_values_allocator;
       id_type _next_id = 0;
-      id_type _create_without_undo_next_id = -1;
-      int64_t _initial_next_id = 0;
+      id_type _create_without_undo_next_id = id_type(-1);
+      int64_t _first_next_id = 0;
       uint64_t _revision = 0;
       uint64_t _monotonic_revision = 0;
       uint64_t _database_id = 0;
