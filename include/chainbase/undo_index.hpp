@@ -284,6 +284,14 @@ namespace chainbase {
          return _database_id;
       }
 
+      void set_first_next_id(int64_t first_next_id) {
+         _first_next_id = first_next_id;
+      }
+
+      int64_t get_first_next_id() const {
+         return _first_next_id;
+      }
+
       using base_type::begin;
       using base_type::end;
       using base_type::rbegin;
@@ -297,6 +305,7 @@ namespace chainbase {
       private:
          uint64_t _instance_id = 0; //database instance id
          uint64_t _database_id = 0;
+         int64_t _first_next_id = 0;
    };
 
    template<typename T, typename S>
@@ -435,8 +444,20 @@ namespace chainbase {
          _create_without_undo_next_id = next_id;
          _next_id = next_id + max_create_without_undo_next_id;
          _first_next_id = next_id;
+
+         _init_next_id<0>(next_id);
       }
-      
+
+      template<int N = 0>
+      bool _init_next_id(int64_t next_id) {
+         if constexpr (N < sizeof...(Indices)) {
+            auto& idx = std::get<N>(_indices);
+            idx.set_first_next_id(next_id);
+            return _init_next_id<N+1>(next_id);
+         }
+         return true;
+      }
+
       int64_t get_first_next_id() const {
          return _first_next_id;
       }
@@ -928,6 +949,18 @@ namespace chainbase {
       }
 
       auto& get_allocator() { return _allocator; }
+
+      template<int N = 0>
+      bool exists(const value_type& p) const {
+         if constexpr (N < sizeof...(Indices)) {
+            auto& idx = std::get<N>(_indices);
+            if (idx.find(p) != idx.end()) {
+               return true;
+            }
+            return exists<N+1>(p);
+         }
+         return false;
+      }
 
     private:
 

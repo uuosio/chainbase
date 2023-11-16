@@ -313,4 +313,47 @@ BOOST_AUTO_TEST_CASE( test_create_ex ) {
 
 }
 
+
+BOOST_AUTO_TEST_CASE( test_exists ) {
+   temp_directory temp_dir;
+   const auto& temp = temp_dir.path();
+   std::cerr << temp << " \n";
+
+   chainbase::database db(temp, database::read_write, 1024*1024*8);
+   db.add_index< book_index >();
+   
+   auto& idx = db.get_mutable_index< book_index >();
+   idx.init_next_id(0);
+
+   auto session = db.start_undo_session(true);
+   const auto& new_book1 = db.create<book>( []( book& b ) {
+      b.a = 1;
+      b.b = 2;
+   } );
+
+   BOOST_TEST(idx.exists(new_book1));
+
+   chainbase::allocator<char> alloc = chainbase::allocator<char>(idx.get_allocator().get_segment_manager());
+   auto new_book2 = book([](auto& obj){
+      obj.a = 0;
+      obj.b = 2;
+   }, alloc);
+
+   BOOST_TEST(idx.exists(new_book2));
+
+   new_book2 = book([](auto& obj){
+      obj.a = 1;
+      obj.b = 0;
+   }, alloc);
+
+   BOOST_TEST(idx.exists(new_book2));
+
+   auto new_book3 = book([](auto& obj){
+      obj.a = 3;
+      obj.b = 4;
+   }, alloc);
+
+   BOOST_TEST(!idx.exists(new_book3));
+}
+
 // BOOST_AUTO_TEST_SUITE_END()
