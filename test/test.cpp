@@ -281,6 +281,7 @@ BOOST_AUTO_TEST_CASE( test_create_ex ) {
       b.b = 4;
    } );
    BOOST_TEST(idx.is_mature_object(new_book2));
+   BOOST_TEST(new_book2.id == book::id_type(0));
 
    const auto& copy_new_book = db.get( book::id_type(0) );
    BOOST_TEST(copy_new_book.id == new_book2.id);

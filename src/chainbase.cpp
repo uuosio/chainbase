@@ -173,12 +173,12 @@ namespace chainbase {
 
    void add_undo_index_events(undo_index_events *event) {
       if (event == nullptr) {
-         BOOST_THROW_EXCEPTION( std::runtime_error("event is nullptr") );
+         BOOST_THROW_EXCEPTION( std::logic_error("event is nullptr") );
       }
       uint64_t instance_id = event->get_instance_id();
       auto it = s_undo_index_events.find(instance_id);
       if (it != s_undo_index_events.end()) {
-         BOOST_THROW_EXCEPTION( std::runtime_error("instance id already exists") );
+         BOOST_THROW_EXCEPTION( std::logic_error("instance id already exists") );
       }
 
       s_undo_index_events.emplace(instance_id, event);
@@ -187,11 +187,11 @@ namespace chainbase {
    void clear_undo_index_events(uint64_t instance_id) {
       auto it = s_undo_index_events.find(instance_id);
       if (it == s_undo_index_events.end()) {
-         BOOST_THROW_EXCEPTION( std::runtime_error("clear_undo_index_events: instance id not found") );
+         BOOST_THROW_EXCEPTION( std::logic_error(std::string("clear_undo_index_events: instance id not found: ") + std::to_string(instance_id)) );
       }
 
       if (it->second->get_instance_id() != instance_id) {
-         BOOST_THROW_EXCEPTION( std::runtime_error("instance id not match") );
+         BOOST_THROW_EXCEPTION( std::logic_error("instance id not match") );
       }
 
       s_undo_index_events.erase(it);
