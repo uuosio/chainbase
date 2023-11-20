@@ -28,7 +28,7 @@ namespace chainbase {
             virtual void on_modify_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *obj) = 0;
             virtual void on_modify_end(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *obj, bool success) = 0;
             virtual void on_remove_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *obj) = 0;
-            virtual void on_remove_end(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info, const void *obj) = 0;
+            virtual void on_remove_end(uint64_t instance_id, uint64_t database_id, const std::type_info& valeu_type_info) = 0;
     };
 
     undo_index_events *get_undo_index_events(uint64_t instance_id);
@@ -153,9 +153,9 @@ namespace chainbase {
     }
 
     template<typename V>
-    inline void undo_index_on_remove_end(uint64_t instance_id, uint64_t database_id, const V *obj) {
+    inline void undo_index_on_remove_end(uint64_t instance_id, uint64_t database_id) {
         auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        event->on_remove_end(instance_id, database_id, typeid(V), obj);
+        event->on_remove_end(instance_id, database_id, typeid(V));
     }
 }

@@ -640,7 +640,7 @@ namespace chainbase {
          if(on_remove(node_ref)) {
             dispose_node(node_ref);
          }
-         undo_index_on_remove_end<value_type>(_instance_id, _database_id, &obj);
+         undo_index_on_remove_end<value_type>(_instance_id, _database_id);
       }
 
       void remove_without_undo( const value_type& obj ) noexcept {
