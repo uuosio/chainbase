@@ -487,13 +487,13 @@ namespace chainbase {
          if (_create_without_undo_next_id == id_type(-1)) {
             if(!insert_impl<1>(p->_item)) {
                undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
-               BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
+               BOOST_THROW_EXCEPTION( std::logic_error{ "emplace 1: could not insert object, most likely a uniqueness constraint was violated" } );
             }
             std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
          } else {
             if(!insert_impl<0>(p->_item)) {
                undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
-               BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
+               BOOST_THROW_EXCEPTION( std::logic_error{ "emplace 2: could not insert object, most likely a uniqueness constraint was violated" } );
             }
          }
          on_create(p->_item);
@@ -507,7 +507,7 @@ namespace chainbase {
       }
 
       // Exception safety: strong
-      // empalce object which can only be undo on modification or remove
+      // create an object that can only be undo after it has been modified or removed
       template<typename Constructor>
       const value_type& emplace_without_undo( Constructor&& c ) {
          if (_create_without_undo_next_id == id_type(-1)) {
@@ -525,9 +525,18 @@ namespace chainbase {
          };
          alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
          auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
-         if(!insert_impl<0>(p->_item)) {
-            BOOST_THROW_EXCEPTION( std::logic_error{ "could not insert object, most likely a uniqueness constraint was violated" } );
+
+         if (_next_id == _first_next_id) {
+            if(!insert_impl<1>(p->_item)) {
+               BOOST_THROW_EXCEPTION( std::logic_error{ "emplace_without_undo 1: could not insert object, most likely a uniqueness constraint was violated" } );
+            }
+            std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
+         } else {
+            if(!insert_impl<0>(p->_item)) {
+               BOOST_THROW_EXCEPTION( std::logic_error{ "emplace_without_undo 2: could not insert object, most likely a uniqueness constraint was violated" } );
+            }
          }
+
          ++_create_without_undo_next_id;
          if (_create_without_undo_next_id >= _first_next_id + max_create_without_undo_next_id) {
             BOOST_THROW_EXCEPTION( std::runtime_error{ "_create_without_undo_next_id overflow" } );

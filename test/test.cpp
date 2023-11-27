@@ -22,8 +22,9 @@ struct book : public chainbase::object<0, book> {
     }
 
     id_type id;
-    int a = 0;
-    int b = 1;
+    int a;
+    int b;
+    int c;
 };
 
 typedef multi_index_container<
@@ -279,26 +280,27 @@ BOOST_AUTO_TEST_CASE( test_create_ex ) {
    const auto& new_book2 = db.create_without_undo<book>( []( book& b ) {
       b.a = 3;
       b.b = 4;
+      b.c = 5;
    } );
    BOOST_TEST(idx.is_mature_object(new_book2));
    BOOST_TEST(new_book2.id == book::id_type(0));
 
-   const auto& copy_new_book = db.get( book::id_type(0) );
-   BOOST_TEST(copy_new_book.id == new_book2.id);
+   const auto& copy_new_book2 = db.get( book::id_type(0) );
+   BOOST_TEST(copy_new_book2.id == new_book2.id);
 
-   db.modify( copy_new_book, [&]( book& b ) {
+   db.modify( copy_new_book2, [&]( book& b ) {
       // b.a = 5;
       // b.b = 6;
    });
 
-   BOOST_TEST(!idx.is_mature_object(copy_new_book));
+   BOOST_TEST(!idx.is_mature_object(copy_new_book2));
 
    session.squash();
-   BOOST_TEST(idx.is_mature_object(copy_new_book));
+   BOOST_TEST(idx.is_mature_object(copy_new_book2));
 
 {
    auto session = db.start_undo_session(true);
-   db.remove(copy_new_book);
+   db.remove(copy_new_book2);
    session.undo();
    const auto *new_book_ptr = db.find( book::id_type(0) );
    BOOST_TEST(new_book_ptr != nullptr);
@@ -306,7 +308,18 @@ BOOST_AUTO_TEST_CASE( test_create_ex ) {
 
 {
    auto session = db.start_undo_session(true);
-   db.remove_without_undo(copy_new_book);
+   db.modify(copy_new_book2, [](book& b){
+      b.c = 123;
+   });
+   session.undo();
+   const auto *new_book_ptr = db.find( book::id_type(0) );
+   BOOST_TEST(new_book_ptr != nullptr);
+   BOOST_TEST(new_book_ptr->c == 5);
+}
+
+{
+   auto session = db.start_undo_session(true);
+   db.remove_without_undo(copy_new_book2);
    session.undo();
    const auto *new_book_ptr = db.find( book::id_type(0) );
    BOOST_TEST(new_book_ptr == nullptr);
