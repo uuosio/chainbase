@@ -487,13 +487,21 @@ namespace chainbase {
          if (_create_without_undo_next_id == id_type(-1)) {
             if(!insert_impl<1>(p->_item)) {
                undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
-               BOOST_THROW_EXCEPTION( std::logic_error{ "emplace 1: could not insert object, most likely a uniqueness constraint was violated" } );
+               std::stringstream ss;
+               ss << "emplace 1: could not insert object: " << boost::core::demangle( typeid( value_type ).name() );
+               ss << "with id: " << new_id;
+               ss << ", most likely a uniqueness constraint was violated";
+               BOOST_THROW_EXCEPTION( std::logic_error{ ss.str() } );
             }
             std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
          } else {
             if(!insert_impl<0>(p->_item)) {
                undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
-               BOOST_THROW_EXCEPTION( std::logic_error{ "emplace 2: could not insert object, most likely a uniqueness constraint was violated" } );
+               std::stringstream ss;
+               ss << "emplace 2: could not insert object: " << boost::core::demangle( typeid( value_type ).name() );
+               ss << " with id:" << new_id;
+               ss << ", most likely a uniqueness constraint was violated";
+               BOOST_THROW_EXCEPTION( std::logic_error{ ss.str() } );
             }
          }
          on_create(p->_item);
@@ -502,6 +510,36 @@ namespace chainbase {
          guard0.cancel();
 
          undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, &p->_item);
+
+         return p->_item;
+      }
+
+      // Exception safety: strong
+      template<typename Constructor>
+      const value_type& emplace_with_id(id_type id,  Constructor&& c ) {
+         if (_next_id != 0) {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "emplace_with_id can only be used while _next_id is zero" } );
+         }
+
+         auto p = alloc_traits::allocate(_allocator, 1);
+         auto guard0 = scope_exit{[&]{ alloc_traits::deallocate(_allocator, p, 1); }};
+         auto new_id = id;
+         auto constructor = [&]( value_type& v ) {
+            v.id = new_id;
+            c( v );
+         };
+         alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
+         auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
+         if(!insert_impl<0>(p->_item)) {
+            std::stringstream ss;
+            ss << "emplace_with_id: could not insert object:" << boost::core::demangle( typeid( value_type ).name() );
+            ss << " with id:" << new_id;
+            ss << ", most likely a uniqueness constraint was violated";
+            BOOST_THROW_EXCEPTION( std::logic_error{ ss.str() } );
+         }
+         on_create(p->_item);
+         guard1.cancel();
+         guard0.cancel();
 
          return p->_item;
       }
@@ -528,12 +566,18 @@ namespace chainbase {
 
          if (_next_id == _first_next_id) {
             if(!insert_impl<1>(p->_item)) {
-               BOOST_THROW_EXCEPTION( std::logic_error{ "emplace_without_undo 1: could not insert object, most likely a uniqueness constraint was violated" } );
+               std::stringstream ss;
+               ss << "emplace_without_undo 1: could not insert object:" << boost::core::demangle( typeid( value_type ).name() );
+               ss << ", most likely a uniqueness constraint was violated";
+               BOOST_THROW_EXCEPTION( std::logic_error{ ss.str() } );
             }
             std::get<0>(_indices).push_back(p->_item); // cannot fail and we know that it will definitely insert at the end.
          } else {
             if(!insert_impl<0>(p->_item)) {
-               BOOST_THROW_EXCEPTION( std::logic_error{ "emplace_without_undo 2: could not insert object, most likely a uniqueness constraint was violated" } );
+               std::stringstream ss;
+               ss << "emplace_without_undo 2: could not insert object:" << boost::core::demangle( typeid( value_type ).name() );
+               ss << ", most likely a uniqueness constraint was violated";
+               BOOST_THROW_EXCEPTION( std::logic_error{ ss.str() } );
             }
          }
 
