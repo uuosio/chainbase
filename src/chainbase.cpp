@@ -129,6 +129,10 @@ namespace chainbase {
       return _db_file.get_segment_manager();
    }
 
+   pinnable_mapped_file& database::get_mapped_file() {
+      return _db_file;
+   }
+
    size_t database::get_free_memory()const
    {
       return _db_file.get_segment_manager()->get_free_memory();

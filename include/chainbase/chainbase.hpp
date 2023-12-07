@@ -329,6 +329,7 @@ namespace chainbase {
 
          pinnable_mapped_file::segment_manager* get_segment_manager();
          const pinnable_mapped_file::segment_manager* get_segment_manager() const;
+         pinnable_mapped_file& get_mapped_file();
 
          size_t get_free_memory()const;
 

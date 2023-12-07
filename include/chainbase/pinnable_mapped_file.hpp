@@ -53,6 +53,7 @@ class pinnable_mapped_file {
       ~pinnable_mapped_file();
 
       segment_manager* get_segment_manager() const { return _segment_manager;}
+      bip::mapped_region& get_mapped_region() { return _file_mapped_region; }
 
    private:
       void                                          set_mapped_file_db_dirty(bool);
