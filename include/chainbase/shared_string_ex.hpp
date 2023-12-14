@@ -127,22 +127,29 @@ namespace chainbase {
          }
       }
 
-      void assign(const char* ptr, std::size_t size, const allocator_pointer alloc = nullptr) {
+      void assign(const char* ptr, std::size_t _size, const allocator_pointer alloc = nullptr) {
+         if (size() > 0 && _size == size() && _impl()->reference_count == 1) {
+            if (alloc == nullptr || alloc == _alloc) {
+               std::memcpy((char *)data(), ptr, _size);
+               return;
+            }
+         }
+
          dec_refcount();
          _data_ptr_offset = 0;
          if (alloc != nullptr && _alloc != alloc) {
             _alloc = alloc;
          }
-         if (size == 0) {
+         if (_size == 0) {
             return;
          }
-         impl* new_data = (impl*)&*_alloc->allocate(sizeof(impl) + size + 1);
+         impl* new_data = (impl*)&*_alloc->allocate(sizeof(impl) + _size + 1);
          new_data->reference_count = 1;
-         new_data->size = size;
-         if(size) {
-            std::memcpy(new_data->data, ptr, size);
+         new_data->size = _size;
+         if(_size) {
+            std::memcpy(new_data->data, ptr, _size);
          }
-         new_data->data[size] = '\0';
+         new_data->data[_size] = '\0';
          set_offset(new_data);
       }
 

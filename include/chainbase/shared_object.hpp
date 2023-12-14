@@ -18,7 +18,7 @@ namespace chainbase {
 
     template<typename T>
     class shared_object {
-    public:        
+    public:
         explicit shared_object(shared_object_allocator& alloc)
         : _data_ptr_offset(0), _alloc(alloc.get_second_allocator()) {
         }

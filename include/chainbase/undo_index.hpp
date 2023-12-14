@@ -22,7 +22,9 @@
 #include "undo_index_events.hpp"
 
 namespace chainbase {
-   const static int64_t max_create_without_undo_next_id = std::numeric_limits<int64_t>::max()/1000;
+   const static int64_t max_database_count = 1000;
+   const static int64_t max_next_id = std::numeric_limits<int64_t>::max()/max_database_count;
+   const static int64_t max_create_without_undo_next_id = std::numeric_limits<int64_t>::max()/max_database_count/2;
 
    template<typename F>
    struct scope_exit {
