@@ -10,7 +10,7 @@ namespace chainbase {
     static std::map<segment_manager*, uint64_t> s_segment_manager_to_id_map = {};
 
     void allocator_set_segment_manager(uint64_t segment_manager_id, segment_manager *manager) {
-        if (segment_manager_id > 0xffff) {
+        if (segment_manager_id > 0xffff || segment_manager_id == 0) {
             std::stringstream ss;
             ss << "allocator_set_segment_manager: invalid segment_manager_id: " << segment_manager_id;
             BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
@@ -31,19 +31,21 @@ namespace chainbase {
     size_t allocator_get_segment_manager_id(segment_manager *manager) {
         auto it = s_segment_manager_to_id_map.find(manager);
         if (it == s_segment_manager_to_id_map.end()) {
-            BOOST_THROW_EXCEPTION(std::runtime_error("segment_manager not found"));
+            BOOST_THROW_EXCEPTION(std::runtime_error("allocator_get_segment_manager_id: segment_manager not found"));
         }
         return it->second;
     }
 
     segment_manager *allocator_get_segment_manager_by_id(uint64_t manager_manager_id) {
         if (manager_manager_id >= s_segment_manager_vector.size()) {
-            BOOST_THROW_EXCEPTION(std::runtime_error("allocator_get_segment_manager_by_id: segment_manager not found"));
+            std::stringstream ss;
+            ss << "allocator_get_segment_manager_by_id 1: invalid segment_manager_id: " << manager_manager_id;
+            BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
         }
         auto *ret = s_segment_manager_vector[manager_manager_id];
         if (ret == nullptr) {
             std::stringstream ss;
-            ss << "allocator_get_segment_manager_by_id: invalid segment_manager: " << manager_manager_id;
+            ss << "allocator_get_segment_manager_by_id 2: invalid segment_manager_id: " << manager_manager_id;
             BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
         }
         return ret;

@@ -21,6 +21,9 @@ namespace chainbase {
          if( !cfg ) {
             cfg = _db_file.get_segment_manager()->construct< database_configure >( "database_configure" )();
          }
+         if (cfg->unique_id != 0) {
+            allocator_set_segment_manager(cfg->unique_id, get_segment_manager());
+         }
       }
    }
 
