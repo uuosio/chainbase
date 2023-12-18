@@ -60,7 +60,7 @@ namespace chainbase {
       uint64_t database_id;
       uint64_t unique_id;
    };
-
+   static const auto database_configure_name = "database_configure";
    /**
     *  Object ID type that includes the type of the object it references
     */
@@ -353,6 +353,9 @@ namespace chainbase {
             typedef typename index_type::allocator_type    index_alloc;
 
             std::string type_name = boost::core::demangle( typeid( typename index_type::value_type ).name() );
+            if (type_name == database_configure_name) {
+               BOOST_THROW_EXCEPTION( std::logic_error( "database_configure is a reserved type name" ) );
+            }
 
             if( !( _index_map.size() <= type_id || _index_map[ type_id ] == nullptr ) ) {
                BOOST_THROW_EXCEPTION( std::logic_error( type_name + "::type_id is already in use" ) );
@@ -576,6 +579,8 @@ namespace chainbase {
           * This is a full map (size 2^16) of all possible index designed for constant time lookup
           */
          vector<unique_ptr<abstract_index>>                          _index_map;
+
+         database_configure*                                         _database_configure = nullptr;
    };
 
    template<typename Object, typename... Args>

@@ -16,14 +16,19 @@ namespace chainbase {
       _read_only(flags == database::read_only)
    {
       _read_only_mode = _read_only;
-      if (!_read_only) {
-         auto *cfg = _db_file.get_segment_manager()->find< database_configure >( "database_configure" ).first;
-         if( !cfg ) {
-            cfg = _db_file.get_segment_manager()->construct< database_configure >( "database_configure" )();
+      if (_read_only) {
+         _database_configure = _db_file.get_segment_manager()->find_no_lock< database_configure >( database_configure_name ).first;
+      } else {
+         _database_configure = _db_file.get_segment_manager()->find< database_configure >( database_configure_name ).first;
+      }
+      if( !_database_configure ) {
+         if (_read_only) {
+            BOOST_THROW_EXCEPTION( std::logic_error( "database_configure can not be initialized in read-only mode" ) );
          }
-         if (cfg->unique_id != 0) {
-            allocator_set_segment_manager(cfg->unique_id, get_segment_manager());
-         }
+         _database_configure = _db_file.get_segment_manager()->construct< database_configure >( database_configure_name )();
+      }
+      if (_database_configure->unique_id != 0) {
+         allocator_set_segment_manager(_database_configure->unique_id, get_segment_manager());
       }
    }
 
@@ -180,7 +185,7 @@ namespace chainbase {
 
 
    void database::set_configuration(const database_configure& config) {
-      auto *cfg = _db_file.get_segment_manager()->find< database_configure >( "database_configure" ).first;
+      auto *cfg = _db_file.get_segment_manager()->find< database_configure >( database_configure_name ).first;
       if (!cfg) {
          BOOST_THROW_EXCEPTION( std::logic_error("set_configuration: database_configure not found") );
       }
@@ -188,11 +193,7 @@ namespace chainbase {
    }
 
    database_configure& database::get_configuration() const {
-      auto *cfg = _db_file.get_segment_manager()->find< database_configure >( "database_configure" ).first;
-      if (!cfg) {
-         BOOST_THROW_EXCEPTION( std::logic_error("get_configuration: database_configure not found") );
-      }
-      return *cfg;
+      return *_database_configure;
    }
 
    void database::set_unique_id( uint64_t id ) {
@@ -263,7 +264,7 @@ namespace chainbase {
    }
 
    uint64_t database_get_unique_id(segment_manager *manager) {
-      auto *cfg = manager->find< database_configure >( "database_configure" ).first;
+      auto *cfg = manager->find< database_configure >( database_configure_name ).first;
       if (!cfg) {
          BOOST_THROW_EXCEPTION( std::logic_error("database_get_unique_id: database_configure not found") );
       }
