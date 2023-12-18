@@ -63,7 +63,7 @@ endif()
 
 
 file(GLOB HEADERS "include/chainbase/*.hpp")
-add_library( chainbase src/chainbase.cpp src/pinnable_mapped_file.cpp ${HEADERS} )
+add_library( chainbase src/chainbase.cpp src/pinnable_mapped_file.cpp src/shared_object_allocator.cpp ${HEADERS} )
 target_link_libraries( chainbase PUBLIC ${PLATFORM_LIBRARIES} Boost::boost Boost::system)
 target_include_directories( chainbase PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"

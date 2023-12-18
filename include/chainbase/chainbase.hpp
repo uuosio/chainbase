@@ -55,6 +55,12 @@ namespace chainbase {
    typedef boost::interprocess::interprocess_sharable_mutex read_write_mutex;
    typedef boost::interprocess::sharable_lock< read_write_mutex > read_lock;
 
+   struct database_configure {
+      uint64_t instance_id;
+      uint64_t database_id;
+      uint64_t unique_id;
+   };
+
    /**
     *  Object ID type that includes the type of the object it references
     */
@@ -540,6 +546,12 @@ namespace chainbase {
              typedef typename get_index_type<ObjectType>::type index_type;
              return get_mutable_index<index_type>().emplace_without_undo( std::forward<Constructor>(con) );
          }
+
+         void set_configuration(const database_configure& config);
+         database_configure& get_configuration() const;
+
+         void set_unique_id( uint64_t id );
+         uint64_t get_unique_id() const;
 
       protected:
          pinnable_mapped_file                                        _db_file;

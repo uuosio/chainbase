@@ -13,8 +13,8 @@
 
 namespace chainbase {
     namespace bip = boost::interprocess;
-
-    using allocator_type = bip::allocator<char, chainbase::pinnable_mapped_file::segment_manager>;
+    using segment_manager = bip::managed_mapped_file::segment_manager;
+    using allocator_type = bip::allocator<char, segment_manager>;
     using allocator_pointer = bip::offset_ptr<allocator_type>;
 
     class shared_object_allocator: public allocator_type {
@@ -36,4 +36,10 @@ namespace chainbase {
         allocator_pointer _alloc1;
         allocator_pointer _alloc2;
     };
+
+    void allocator_set_segment_manager(uint64_t segment_manager_id, segment_manager *manager);
+    size_t allocator_get_segment_manager_id(segment_manager *manager);
+    segment_manager *allocator_get_segment_manager_by_id(uint64_t manager_manager_id);
+
+    uint64_t database_get_unique_id(segment_manager *manager); //implemented in database.cpp
 } // namespace chainbase

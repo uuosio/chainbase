@@ -16,10 +16,21 @@ namespace chainbase {
       _read_only(flags == database::read_only)
    {
       _read_only_mode = _read_only;
+      if (!_read_only) {
+         auto *cfg = _db_file.get_segment_manager()->find< database_configure >( "database_configure" ).first;
+         if( !cfg ) {
+            cfg = _db_file.get_segment_manager()->construct< database_configure >( "database_configure" )();
+         }
+      }
    }
 
    database::~database()
    {
+      uint64_t id = get_unique_id();
+      if (id != 0) {
+         allocator_set_segment_manager(id, nullptr);
+      }
+
       _index_list.clear();
       _index_map.clear();
    }
@@ -95,8 +106,7 @@ namespace chainbase {
 
    int64_t database::get_database_id()const
    {
-      if( _index_list.size() == 0 ) return -1;
-      return _index_list[0]->get_database_id();
+      return get_configuration().database_id;
    }
 
    void database::set_database_id(uint64_t database_id)
@@ -104,13 +114,13 @@ namespace chainbase {
       if ( _read_only_mode ) {
          BOOST_THROW_EXCEPTION( std::logic_error( "attempting to set database_id in read-only mode" ) );
       }
+      get_configuration().database_id = database_id;
       for( auto i : _index_list ) i->set_database_id( database_id );
    }
 
    int64_t database::get_instance_id()const
    {
-      if( _index_list.size() == 0 ) return -1;
-      return _index_list[0]->get_instance_id();
+      return get_configuration().instance_id;
    }
 
    void database::set_instance_id(uint64_t database_id)
@@ -118,6 +128,7 @@ namespace chainbase {
       if ( _read_only_mode ) {
          BOOST_THROW_EXCEPTION( std::logic_error( "attempting to set database_id in read-only mode" ) );
       }
+      get_configuration().instance_id = database_id;
       for( auto i : _index_list ) i->set_instance_id( database_id );
    }
 
@@ -162,6 +173,36 @@ namespace chainbase {
          ret.emplace(make_pair(ai_ptr->row_count(), ai_ptr->type_name()));
       }
       return ret;
+   }
+
+
+   void database::set_configuration(const database_configure& config) {
+      auto *cfg = _db_file.get_segment_manager()->find< database_configure >( "database_configure" ).first;
+      if (!cfg) {
+         BOOST_THROW_EXCEPTION( std::logic_error("set_configuration: database_configure not found") );
+      }
+      *cfg = config;
+   }
+
+   database_configure& database::get_configuration() const {
+      auto *cfg = _db_file.get_segment_manager()->find< database_configure >( "database_configure" ).first;
+      if (!cfg) {
+         BOOST_THROW_EXCEPTION( std::logic_error("get_configuration: database_configure not found") );
+      }
+      return *cfg;
+   }
+
+   void database::set_unique_id( uint64_t id ) {
+      auto& cfg = get_configuration();
+      if (cfg.unique_id != 0) {
+         BOOST_THROW_EXCEPTION( std::logic_error("set_unique_id: unique_id already set") );
+      }
+      cfg.unique_id = id;
+      allocator_set_segment_manager(id, get_segment_manager());
+   }
+
+   uint64_t database::get_unique_id() const {
+      return get_configuration().unique_id;
    }
 
    static std::unordered_map<uint64_t, undo_index_events *> s_undo_index_events = {};
@@ -218,4 +259,11 @@ namespace chainbase {
       return it->second->is_read_only();
    }
 
+   uint64_t database_get_unique_id(segment_manager *manager) {
+      auto *cfg = manager->find< database_configure >( "database_configure" ).first;
+      if (!cfg) {
+         BOOST_THROW_EXCEPTION( std::logic_error("database_get_unique_id: database_configure not found") );
+      }
+      return cfg->unique_id;
+   }
 }  // namespace chainbase

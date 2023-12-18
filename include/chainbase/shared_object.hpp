@@ -19,19 +19,33 @@ namespace chainbase {
     template<typename T>
     class shared_object {
     public:
-        explicit shared_object(shared_object_allocator& alloc)
-        : _data_ptr_offset(0), _alloc(alloc.get_second_allocator()) {
+        explicit shared_object(shared_object_allocator& alloc) : _data_ptr_offset(0) {
+            uint64_t id = database_get_unique_id(alloc.get_second_allocator()->get_segment_manager());
+            if (id > 0xffff) {
+                std::stringstream ss;
+                ss << "1: shared_object: invalid segment_manager_id: " << id;
+                BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
+            }
+            _segment_manager_id = id;
         }
 
-        shared_object(allocator_pointer alloc) : _data_ptr_offset(0), _alloc(alloc)  {
+        shared_object(allocator_type alloc) : _data_ptr_offset(0) {
+            uint64_t id = database_get_unique_id(alloc.get_segment_manager());
+            if (id > 0xffff) {
+                std::stringstream ss;
+                ss << "2: shared_object: invalid segment_manager_id: " << id;
+                BOOST_THROW_EXCEPTION(std::runtime_error("2: shared_object: invalid segment_manager_id"));
+            }
+            _segment_manager_id = id;
         }
 
         shared_object(const shared_object& other) {
             _new(other);
         }
 
-        shared_object(shared_object&& other) : _data_ptr_offset(other._data_ptr_offset), _alloc(other._alloc) {
+        shared_object(shared_object&& other) : _data_ptr_offset(other._data_ptr_offset), _segment_manager_id(other._segment_manager_id) {
             other._data_ptr_offset = 0;
+            other._segment_manager_id = 0;
         }
 
         shared_object& operator=(const shared_object& other) {
@@ -46,18 +60,19 @@ namespace chainbase {
             if (this != &other) {
                 _free();
                 _data_ptr_offset = other._data_ptr_offset;
-                _alloc = other._alloc;
+                _segment_manager_id = other._segment_manager_id;
 
                 other._data_ptr_offset = 0;
-                other._alloc = nullptr;
+                other._segment_manager_id = 0;
             }
             return *this;
         }
 
         void _new(const shared_object& other) {
-            _alloc = other._alloc;
+            _segment_manager_id = other._segment_manager_id;
             if (other._data_ptr_offset) {
-                auto *data = new ((T *)&*_alloc->allocate(sizeof(T))) T{*_alloc};
+                auto alloc = get_allocator();
+                auto *data = new ((T *)&*get_allocator().allocate(sizeof(T))) T{alloc};
                 *data = other.get();
                 set_offset(data);
             }
@@ -67,9 +82,9 @@ namespace chainbase {
             if (_data_ptr_offset) {
                 auto& obj = get();
                 obj.~T();
-                _alloc->deallocate((char*)&obj, sizeof(T));
+                get_allocator().deallocate((char*)&obj, sizeof(T));
                 _data_ptr_offset = 0;
-                _alloc = nullptr;
+                _segment_manager_id = 0;
             }
         }
 
@@ -91,17 +106,18 @@ namespace chainbase {
 
         bool operator!=(const shared_object& rhs) const { return !(*this == rhs); }
 
-        const allocator_type& get_allocator() const { return *_alloc; }
-        const allocator_pointer get_allocator_ptr() const { return _alloc; }
+        allocator_type get_allocator() const {
+            return allocator_type(allocator_get_segment_manager_by_id(_segment_manager_id));
+        }
 
         chainbase::pinnable_mapped_file::segment_manager* get_segment_manager() const {
-            auto *_manager = _alloc->get_segment_manager();
-            return _manager;
+            return allocator_get_segment_manager_by_id(_segment_manager_id);
         }
 
         T& get() const {
             if (get_offset() == 0) {
-                T *data = new ((T *)&*_alloc->allocate(sizeof(T))) T{*_alloc};
+                auto alloc = get_allocator();
+                T *data = new ((T *)&*alloc.allocate(sizeof(T))) T{alloc};
                 set_offset(&*data);
                 return *data;
             }
@@ -130,15 +146,17 @@ namespace chainbase {
 
         void set_offset(T *ptr) const {
             auto *manager = get_segment_manager();
-            if (uint64_t(ptr) < uint64_t(manager)) {
+            if (uint64_t(ptr) > uint64_t(manager) && uint64_t(ptr) < uint64_t(manager) + manager->get_size()) {
+                // valid pointer
+            } else {
                 BOOST_THROW_EXCEPTION( std::runtime_error("shared_object: invalid pointer") );
             }
             _data_ptr_offset = uint64_t(ptr) - uint64_t(manager);
         }
 
     private:
-        mutable uint64_t _data_ptr_offset = 0;
-        mutable allocator_pointer _alloc = nullptr;
+        mutable uint64_t _data_ptr_offset:48;
+        mutable uint64_t _segment_manager_id:16;
     };
 
 } // namespace chainbase

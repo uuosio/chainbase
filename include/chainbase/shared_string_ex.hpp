@@ -26,24 +26,41 @@ namespace chainbase {
       using iterator = const char*;
       using const_iterator = const char*;
 
-      explicit shared_string_ex(shared_object_allocator& alloc)
-      : _data_ptr_offset(0),
-      _alloc(alloc.get_second_allocator()) {
-
+      explicit shared_string_ex(shared_object_allocator& alloc) : _data_ptr_offset(0) {
+         uint64_t id = database_get_unique_id(alloc.get_second_allocator()->get_segment_manager());
+         if (id > 0xffff) {
+            std::stringstream ss;
+            ss << "1: shared_string_ex: invalid segment_manager_id: " << id;
+            BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
+         }
+         _segment_manager_id = id;
       }
 
-      shared_string_ex(const allocator_pointer& alloc) : _data_ptr_offset(), _alloc(alloc) {}
+      shared_string_ex(const allocator_type& alloc) : _data_ptr_offset(0) {
+         uint64_t id = database_get_unique_id(alloc.get_segment_manager());
+         if (id > 0xffff) {
+            std::stringstream ss;
+            ss << "2: shared_string_ex: invalid segment_manager_id: " << id;
+            BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
+         }
+         _segment_manager_id = id;
+      }
 
-      shared_string_ex(const allocator_pointer& alloc, uint64_t data_ptr_offset)
-      : _data_ptr_offset(data_ptr_offset),
-      _alloc(alloc) {
-
+      shared_string_ex(const allocator_type& alloc, uint64_t data_ptr_offset)
+      : _data_ptr_offset(data_ptr_offset) {
+         uint64_t id = database_get_unique_id(alloc.get_segment_manager());
+         if (id > 0xffff) {
+            std::stringstream ss;
+            ss << "3: shared_string_ex: invalid segment_manager_id: " << id;
+            BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
+         }
+         _segment_manager_id = id;
       }
 
       template<typename Iter>
-      explicit shared_string_ex(Iter begin, Iter end, const allocator_pointer& alloc) : shared_string_ex(alloc) {
+      explicit shared_string_ex(Iter begin, Iter end, const allocator_type alloc) : shared_string_ex(alloc) {
          std::size_t size = std::distance(begin, end);
-         impl* new_data = (impl*)&*_alloc->allocate(sizeof(impl) + size + 1);
+         impl* new_data = (impl*)&*get_allocator().allocate(sizeof(impl) + size + 1);
          new_data->reference_count = 1;
          new_data->size = size;
          std::copy(begin, end, new_data->data);
@@ -51,8 +68,8 @@ namespace chainbase {
          set_offset(new_data);
       }
 
-      explicit shared_string_ex(const char* ptr, std::size_t size, const allocator_pointer& alloc) : shared_string_ex(alloc) {
-         impl* new_data = (impl*)&*_alloc->allocate(sizeof(impl) + size + 1);
+      explicit shared_string_ex(const char* ptr, std::size_t size, const allocator_type alloc) : shared_string_ex(alloc) {
+         impl* new_data = (impl*)&*get_allocator().allocate(sizeof(impl) + size + 1);
          new_data->reference_count = 1;
          new_data->size = size;
          std::memcpy(new_data->data, ptr, size);
@@ -60,30 +77,30 @@ namespace chainbase {
          set_offset(new_data);
       }
 
-      explicit shared_string_ex(std::size_t size, boost::container::default_init_t, const allocator_pointer& alloc) : shared_string_ex(alloc) {
-         impl* new_data = (impl*)&*_alloc->allocate(sizeof(impl) + size + 1);
+      explicit shared_string_ex(std::size_t size, boost::container::default_init_t, const allocator_type alloc) : shared_string_ex(alloc) {
+         impl* new_data = (impl*)&*get_allocator().allocate(sizeof(impl) + size + 1);
          new_data->reference_count = 1;
          new_data->size = size;
          new_data->data[size] = '\0';
          set_offset(new_data);
       }
 
-      shared_string_ex(const shared_string_ex& other) : _data_ptr_offset(other._data_ptr_offset), _alloc(other._alloc) {
+      shared_string_ex(const shared_string_ex& other) : _data_ptr_offset(other._data_ptr_offset), _segment_manager_id(other._segment_manager_id) {
          if(_impl() != nullptr) {
             ++_impl()->reference_count;
          }
       }
 
-      shared_string_ex(shared_string_ex&& other) : _data_ptr_offset(other._data_ptr_offset), _alloc(other._alloc) {
+      shared_string_ex(shared_string_ex&& other) : _data_ptr_offset(other._data_ptr_offset), _segment_manager_id(other._segment_manager_id) {
          other._data_ptr_offset = 0;
-         other._alloc = nullptr;
+         other._segment_manager_id = 0;
       }
 
       shared_string_ex& operator=(const shared_string_ex& other) {
          if (this != &other) {
             dec_refcount();
             _data_ptr_offset = other._data_ptr_offset;
-            _alloc = other._alloc;
+            _segment_manager_id = other._segment_manager_id;
             if (_data_ptr_offset != 0) {
                ++_impl()->reference_count;
             }
@@ -95,8 +112,8 @@ namespace chainbase {
          if (this != &other) {
             dec_refcount();
             _data_ptr_offset = other._data_ptr_offset;
-            _alloc = other._alloc;
-            other._alloc = nullptr;
+            _segment_manager_id = other._segment_manager_id;
+            other._segment_manager_id = 0;
             other._data_ptr_offset = 0;
          }
          return *this;
@@ -112,7 +129,7 @@ namespace chainbase {
          if (new_size == 0) {
             return;
          }
-         impl* new_data = (impl*)&*_alloc->allocate(sizeof(impl) + new_size + 1);
+         impl* new_data = (impl*)&*get_allocator().allocate(sizeof(impl) + new_size + 1);
          new_data->reference_count = 1;
          new_data->size = new_size;
          new_data->data[new_size] = '\0';
@@ -127,23 +144,18 @@ namespace chainbase {
          }
       }
 
-      void assign(const char* ptr, std::size_t _size, const allocator_pointer alloc = nullptr) {
+      void assign(const char* ptr, std::size_t _size) {
          if (size() > 0 && _size == size() && _impl()->reference_count == 1) {
-            if (alloc == nullptr || alloc == _alloc) {
-               std::memcpy((char *)data(), ptr, _size);
-               return;
-            }
+            std::memcpy((char *)data(), ptr, _size);
+            return;
          }
 
          dec_refcount();
          _data_ptr_offset = 0;
-         if (alloc != nullptr && _alloc != alloc) {
-            _alloc = alloc;
-         }
          if (_size == 0) {
             return;
          }
-         impl* new_data = (impl*)&*_alloc->allocate(sizeof(impl) + _size + 1);
+         impl* new_data = (impl*)&*get_allocator().allocate(sizeof(impl) + _size + 1);
          new_data->reference_count = 1;
          new_data->size = _size;
          if(_size) {
@@ -153,8 +165,8 @@ namespace chainbase {
          set_offset(new_data);
       }
 
-      void assign(const unsigned char* ptr, std::size_t size, const allocator_pointer alloc = nullptr) {
-         assign((char*)ptr, size, alloc);
+      void assign(const unsigned char* ptr, std::size_t size) {
+         assign((char*)ptr, size);
       }
 
       const char * data() const {
@@ -219,17 +231,12 @@ namespace chainbase {
          return !(*this == rhs);
       }
 
-      const allocator_type& get_allocator() const {
-         return *_alloc;
-      }
-
-      const allocator_pointer get_allocator_ptr() const {
-         return _alloc;
+      allocator_type get_allocator() const {
+         return allocator_type(get_segment_manager());
       }
 
       chainbase::pinnable_mapped_file::segment_manager* get_segment_manager() const {
-         auto *_manager = _alloc->get_segment_manager();
-         return _manager;
+         return allocator_get_segment_manager_by_id(_segment_manager_id);
       }
 
       uint64_t get_offset() const {
@@ -251,12 +258,12 @@ namespace chainbase {
     private:
       void dec_refcount() {
          if(_impl() && --_impl()->reference_count == 0) {
-            _alloc->deallocate((char*)_impl(), sizeof(impl) + _impl()->size + 1);
+            get_allocator().deallocate((char*)_impl(), sizeof(impl) + _impl()->size + 1);
             _data_ptr_offset = 0;
          }
       }
-      uint64_t _data_ptr_offset = 0;
-      allocator_pointer _alloc;
+      uint64_t _data_ptr_offset:48;
+      uint64_t _segment_manager_id:16;
    };
 
 }  // namepsace chainbase

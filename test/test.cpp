@@ -135,6 +135,8 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
 
    chainbase::database db(temp, database::read_write, 1024*1024*8);
    db.add_index< book_index >();
+   db.set_unique_id(1);
+   allocator_set_segment_manager(1, db.get_segment_manager());
 
    auto& idx = db.get_mutable_index< book_index >();
    auto alloc = idx.get_allocator().get_first_allocator();
@@ -184,8 +186,8 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
    BOOST_TEST(free_memory == db.get_free_memory());
 
    {
-      auto s1 = shared_string_ex(alloc);
-      auto s2 = shared_string_ex(alloc);
+      auto s1 = shared_string_ex(*alloc);
+      auto s2 = shared_string_ex(*alloc);
       shared_string_ex *s1_ptr = &s1;
 
       // test assign method
@@ -221,8 +223,8 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
    BOOST_TEST(free_memory == db.get_free_memory());
 
    {
-      auto s1 = shared_object<shared_cow_string>(alloc);
-      auto s2 = shared_object<shared_cow_string>(alloc);
+      auto s1 = shared_object<shared_cow_string>(*alloc);
+      auto s2 = shared_object<shared_cow_string>(*alloc);
       shared_object<shared_cow_string> *s1_ptr = &s1;
 
       // test assign method
@@ -368,6 +370,27 @@ BOOST_AUTO_TEST_CASE( test_exists ) {
    }, alloc);
 
    BOOST_TEST(!idx.exists(new_book3));
+}
+
+BOOST_AUTO_TEST_CASE( test_shared_object_allocator ) {
+   temp_directory temp_dir;
+   const auto& temp = temp_dir.path();
+   std::cerr << temp << " \n";
+   chainbase::database db(temp, database::read_write, 1024*1024*1024);
+
+   temp_directory temp_dir2;
+   const auto& temp2 = temp_dir2.path();
+   std::cerr << temp2 << " \n";
+   chainbase::database db2(temp2, database::read_write, 1024*1024*1024);
+
+   allocator_set_segment_manager(11, db.get_segment_manager());
+   allocator_set_segment_manager(12, db2.get_segment_manager());
+
+   BOOST_TEST(allocator_get_segment_manager_id(db.get_segment_manager()) == 11);
+   BOOST_TEST(allocator_get_segment_manager_id(db2.get_segment_manager()) == 12);
+
+   BOOST_TEST(db.get_segment_manager() == allocator_get_segment_manager_by_id(11));
+   BOOST_TEST(db2.get_segment_manager() == allocator_get_segment_manager_by_id(12));
 }
 
 // BOOST_AUTO_TEST_SUITE_END()
