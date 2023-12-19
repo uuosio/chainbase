@@ -21,7 +21,7 @@ namespace chainbase {
     public:
         explicit shared_object(shared_object_allocator& alloc) : _data_ptr_offset(0) {
             uint64_t id = database_get_unique_id(alloc.get_second_allocator()->get_segment_manager());
-            if (id > 0xffff) {
+            if (id > 0xffff || id == 0) {
                 std::stringstream ss;
                 ss << "1: shared_object: invalid segment_manager_id: " << id;
                 BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
@@ -31,7 +31,7 @@ namespace chainbase {
 
         shared_object(allocator_type alloc) : _data_ptr_offset(0) {
             uint64_t id = database_get_unique_id(alloc.get_segment_manager());
-            if (id > 0xffff) {
+            if (id > 0xffff || id == 0) {
                 std::stringstream ss;
                 ss << "2: shared_object: invalid segment_manager_id: " << id;
                 BOOST_THROW_EXCEPTION(std::runtime_error("2: shared_object: invalid segment_manager_id"));
@@ -72,7 +72,7 @@ namespace chainbase {
             _segment_manager_id = other._segment_manager_id;
             if (other._data_ptr_offset) {
                 auto alloc = get_allocator();
-                auto *data = new ((T *)&*get_allocator().allocate(sizeof(T))) T{alloc};
+                auto *data = new ((T *)&*alloc.allocate(sizeof(T))) T{alloc};
                 *data = other.get();
                 set_offset(data);
             }

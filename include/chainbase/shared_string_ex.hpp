@@ -28,7 +28,7 @@ namespace chainbase {
 
       explicit shared_string_ex(shared_object_allocator& alloc) : _data_ptr_offset(0) {
          uint64_t id = database_get_unique_id(alloc.get_second_allocator()->get_segment_manager());
-         if (id > 0xffff) {
+         if (id > 0xffff || id == 0) {
             std::stringstream ss;
             ss << "1: shared_string_ex: invalid segment_manager_id: " << id;
             BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
@@ -38,7 +38,7 @@ namespace chainbase {
 
       shared_string_ex(const allocator_type& alloc) : _data_ptr_offset(0) {
          uint64_t id = database_get_unique_id(alloc.get_segment_manager());
-         if (id > 0xffff) {
+         if (id > 0xffff || id == 0) {
             std::stringstream ss;
             ss << "2: shared_string_ex: invalid segment_manager_id: " << id;
             BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
@@ -49,7 +49,7 @@ namespace chainbase {
       shared_string_ex(const allocator_type& alloc, uint64_t data_ptr_offset)
       : _data_ptr_offset(data_ptr_offset) {
          uint64_t id = database_get_unique_id(alloc.get_segment_manager());
-         if (id > 0xffff) {
+         if (id > 0xffff || id == 0) {
             std::stringstream ss;
             ss << "3: shared_string_ex: invalid segment_manager_id: " << id;
             BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));

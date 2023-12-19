@@ -122,6 +122,11 @@ namespace chainbase {
       if ( _read_only_mode ) {
          BOOST_THROW_EXCEPTION( std::logic_error( "attempting to set database_id in read-only mode" ) );
       }
+
+      if (get_configuration().database_id != 0) {
+         BOOST_THROW_EXCEPTION( std::logic_error( "database_id already set" ) );
+      }
+
       get_configuration().database_id = database_id;
       for( auto i : _index_list ) i->set_database_id( database_id );
    }
@@ -131,13 +136,14 @@ namespace chainbase {
       return get_configuration().instance_id;
    }
 
-   void database::set_instance_id(uint64_t database_id)
+   void database::set_instance_id(uint64_t instance_id)
    {
       if ( _read_only_mode ) {
          BOOST_THROW_EXCEPTION( std::logic_error( "attempting to set database_id in read-only mode" ) );
       }
-      get_configuration().instance_id = database_id;
-      for( auto i : _index_list ) i->set_instance_id( database_id );
+
+      get_configuration().instance_id = instance_id;
+      for( auto i : _index_list ) i->set_instance_id( instance_id );
    }
 
    pinnable_mapped_file::segment_manager* database::get_segment_manager() {
@@ -185,11 +191,7 @@ namespace chainbase {
 
 
    void database::set_configuration(const database_configure& config) {
-      auto *cfg = _db_file.get_segment_manager()->find< database_configure >( database_configure_name ).first;
-      if (!cfg) {
-         BOOST_THROW_EXCEPTION( std::logic_error("set_configuration: database_configure not found") );
-      }
-      *cfg = config;
+      *_database_configure = config;
    }
 
    database_configure& database::get_configuration() const {

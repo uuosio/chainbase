@@ -23,7 +23,10 @@ namespace chainbase {
         if (s_segment_manager_vector.size() <= segment_manager_id) {
             s_segment_manager_vector.resize(segment_manager_id + 1);
         }
-
+        auto *old_manager = s_segment_manager_vector[segment_manager_id];
+        if (old_manager != nullptr) {
+            s_segment_manager_to_id_map.erase(old_manager);
+        }
         s_segment_manager_vector[segment_manager_id] = manager;
         s_segment_manager_to_id_map[manager] = segment_manager_id;
     }
@@ -37,7 +40,7 @@ namespace chainbase {
     }
 
     segment_manager *allocator_get_segment_manager_by_id(uint64_t manager_manager_id) {
-        if (manager_manager_id >= s_segment_manager_vector.size()) {
+        if (manager_manager_id >= s_segment_manager_vector.size() || manager_manager_id == 0) {
             std::stringstream ss;
             ss << "allocator_get_segment_manager_by_id 1: invalid segment_manager_id: " << manager_manager_id;
             BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
