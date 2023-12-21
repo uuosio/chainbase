@@ -28,7 +28,7 @@ namespace chainbase {
 
       explicit shared_string_ex(shared_object_allocator& alloc) : _data_ptr_offset(0) {
          uint64_t id = database_get_unique_id(alloc.get_second_allocator()->get_segment_manager());
-         if (id > 0xffff || id == 0) {
+         if (id > max_segment_manager_id || id == 0) {
             std::stringstream ss;
             ss << "1: shared_string_ex: invalid segment_manager_id: " << id;
             BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
@@ -38,7 +38,7 @@ namespace chainbase {
 
       shared_string_ex(const allocator_type& alloc) : _data_ptr_offset(0) {
          uint64_t id = database_get_unique_id(alloc.get_segment_manager());
-         if (id > 0xffff || id == 0) {
+         if (id > max_segment_manager_id || id == 0) {
             std::stringstream ss;
             ss << "2: shared_string_ex: invalid segment_manager_id: " << id;
             BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
@@ -46,19 +46,8 @@ namespace chainbase {
          _segment_manager_id = id;
       }
 
-      shared_string_ex(const allocator_type& alloc, uint64_t data_ptr_offset)
-      : _data_ptr_offset(data_ptr_offset) {
-         uint64_t id = database_get_unique_id(alloc.get_segment_manager());
-         if (id > 0xffff || id == 0) {
-            std::stringstream ss;
-            ss << "3: shared_string_ex: invalid segment_manager_id: " << id;
-            BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
-         }
-         _segment_manager_id = id;
-      }
-
       template<typename Iter>
-      explicit shared_string_ex(Iter begin, Iter end, const allocator_type alloc) : shared_string_ex(alloc) {
+      explicit shared_string_ex(Iter begin, Iter end, const allocator_type& alloc) : shared_string_ex(alloc) {
          std::size_t size = std::distance(begin, end);
          impl* new_data = (impl*)&*get_allocator().allocate(sizeof(impl) + size + 1);
          new_data->reference_count = 1;
@@ -68,7 +57,7 @@ namespace chainbase {
          set_offset(new_data);
       }
 
-      explicit shared_string_ex(const char* ptr, std::size_t size, const allocator_type alloc) : shared_string_ex(alloc) {
+      explicit shared_string_ex(const char* ptr, std::size_t size, const allocator_type& alloc) : shared_string_ex(alloc) {
          impl* new_data = (impl*)&*get_allocator().allocate(sizeof(impl) + size + 1);
          new_data->reference_count = 1;
          new_data->size = size;
@@ -77,7 +66,7 @@ namespace chainbase {
          set_offset(new_data);
       }
 
-      explicit shared_string_ex(std::size_t size, boost::container::default_init_t, const allocator_type alloc) : shared_string_ex(alloc) {
+      explicit shared_string_ex(std::size_t size, boost::container::default_init_t, const allocator_type& alloc) : shared_string_ex(alloc) {
          impl* new_data = (impl*)&*get_allocator().allocate(sizeof(impl) + size + 1);
          new_data->reference_count = 1;
          new_data->size = size;
@@ -86,8 +75,9 @@ namespace chainbase {
       }
 
       shared_string_ex(const shared_string_ex& other) : _data_ptr_offset(other._data_ptr_offset), _segment_manager_id(other._segment_manager_id) {
-         if(_impl() != nullptr) {
-            ++_impl()->reference_count;
+         auto *impl_ptr = _impl();
+         if(impl_ptr != nullptr) {
+            ++impl_ptr->reference_count;
          }
       }
 
@@ -184,8 +174,9 @@ namespace chainbase {
       }
 
       std::size_t size() const {
-         if (_impl()) {
-            return _impl()->size;
+         auto *impl_ptr = _impl();
+         if (impl_ptr) {
+            return impl_ptr->size;
          } else {
             return 0;
          }
@@ -194,8 +185,9 @@ namespace chainbase {
       const_iterator begin() const { return data(); }
 
       const_iterator end() const {
-         if (_impl()) {
-            return _impl()->data + _impl()->size;
+         auto *impl_ptr = _impl();
+         if (impl_ptr) {
+            return impl_ptr->data + impl_ptr->size;
          } else {
             return nullptr;
          }
@@ -257,8 +249,9 @@ namespace chainbase {
 
     private:
       void dec_refcount() {
-         if(_impl() && --_impl()->reference_count == 0) {
-            get_allocator().deallocate((char*)_impl(), sizeof(impl) + _impl()->size + 1);
+         auto *impl_ptr = _impl();
+         if(impl_ptr && --impl_ptr->reference_count == 0) {
+            get_allocator().deallocate((char*)impl_ptr, sizeof(impl) + impl_ptr->size + 1);
             _data_ptr_offset = 0;
          }
       }

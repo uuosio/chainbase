@@ -203,6 +203,11 @@ namespace chainbase {
       if (cfg.unique_id != 0) {
          BOOST_THROW_EXCEPTION( std::logic_error("set_unique_id: unique_id already set") );
       }
+      if (id == 0 || id > max_segment_manager_id) {
+         std::stringstream ss;
+         ss << "set_unique_id: invalid unique_id: " << id;
+         BOOST_THROW_EXCEPTION( std::logic_error(ss.str()) );
+      }
       cfg.unique_id = id;
       allocator_set_segment_manager(id, get_segment_manager());
    }

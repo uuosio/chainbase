@@ -12,6 +12,9 @@
 #include <chainbase/pinnable_mapped_file.hpp>
 
 namespace chainbase {
+    const static uint64_t max_segment_manager_id = std::numeric_limits<uint16_t>::max();
+    const static uint64_t default_segment_manager_cache_size = 1000;
+
     namespace bip = boost::interprocess;
     using segment_manager = bip::managed_mapped_file::segment_manager;
     using allocator_type = bip::allocator<char, segment_manager>;

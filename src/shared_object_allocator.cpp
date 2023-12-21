@@ -10,14 +10,14 @@ namespace chainbase {
     static std::map<segment_manager*, uint64_t> s_segment_manager_to_id_map = {};
 
     void allocator_set_segment_manager(uint64_t segment_manager_id, segment_manager *manager) {
-        if (segment_manager_id > 0xffff || segment_manager_id == 0) {
+        if (segment_manager_id > max_segment_manager_id || segment_manager_id == 0) {
             std::stringstream ss;
             ss << "allocator_set_segment_manager: invalid segment_manager_id: " << segment_manager_id;
             BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
         }
 
         if (s_segment_manager_vector.size() == 0) {
-            s_segment_manager_vector.resize(100);
+            s_segment_manager_vector.resize(default_segment_manager_cache_size);
         }
 
         if (s_segment_manager_vector.size() <= segment_manager_id) {
