@@ -309,7 +309,9 @@ pinnable_mapped_file::pinnable_mapped_file(pinnable_mapped_file&& o) :
 {
    _segment_manager = o._segment_manager;
    _writable = o._writable;
+   _map_mode = o._map_mode;
    _non_file_mapped_mapping = o._non_file_mapped_mapping;
+   _non_file_mapped_mapping_size = o._non_file_mapped_mapping_size;
    o._non_file_mapped_mapping = nullptr;
    o._writable = false; //prevent dtor from doing anything interesting
 }
@@ -319,7 +321,9 @@ pinnable_mapped_file& pinnable_mapped_file::operator=(pinnable_mapped_file&& o) 
    _data_file_path = std::move(o._data_file_path);
    _database_name = std::move(o._database_name);
    _file_mapped_region = std::move(o._file_mapped_region);
+   _map_mode = o._map_mode;
    _non_file_mapped_mapping = o._non_file_mapped_mapping;
+   _non_file_mapped_mapping_size = o._non_file_mapped_mapping_size;
    o._non_file_mapped_mapping = nullptr;
    _segment_manager = o._segment_manager;
    _writable = o._writable;
