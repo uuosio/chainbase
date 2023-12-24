@@ -138,7 +138,7 @@ namespace chainbase {
                 return *data;
             }
 
-            return *reinterpret_cast<T*>(uint64_t(get_segment_manager()) + get_offset());
+            return get();
         }
 
         T& get() const {
