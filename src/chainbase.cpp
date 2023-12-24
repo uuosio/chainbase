@@ -27,14 +27,14 @@ namespace chainbase {
          }
          _database_configure = _db_file.get_segment_manager()->construct< database_configure >( database_configure_name )();
       }
-      if (_database_configure->unique_id != 0) {
-         allocator_set_segment_manager(_database_configure->unique_id, get_segment_manager());
+      if (_database_configure->unique_segment_manager_id != 0) {
+         allocator_set_segment_manager(_database_configure->unique_segment_manager_id, get_segment_manager());
       }
    }
 
    database::~database()
    {
-      uint64_t id = get_unique_id();
+      uint64_t id = get_unique_segment_manager_id();
       if (id != 0) {
          allocator_set_segment_manager(id, nullptr);
       }
@@ -189,7 +189,6 @@ namespace chainbase {
       return ret;
    }
 
-
    void database::set_configuration(const database_configure& config) {
       *_database_configure = config;
    }
@@ -198,22 +197,43 @@ namespace chainbase {
       return *_database_configure;
    }
 
-   void database::set_unique_id( uint64_t id ) {
+   void database::set_unique_segment_manager_id( uint64_t id ) {
       auto& cfg = get_configuration();
-      if (cfg.unique_id != 0) {
-         BOOST_THROW_EXCEPTION( std::logic_error("set_unique_id: unique_id already set") );
+      if (cfg.unique_segment_manager_id != 0) {
+         BOOST_THROW_EXCEPTION( std::logic_error("set_unique_segment_manager_id: unique_segment_manager_id already set") );
+         return;
       }
       if (id == 0 || id > max_segment_manager_id) {
          std::stringstream ss;
-         ss << "set_unique_id: invalid unique_id: " << id;
+         ss << "set_unique_segment_manager_id: invalid unique_segment_manager_id: " << id;
          BOOST_THROW_EXCEPTION( std::logic_error(ss.str()) );
+         return;
       }
-      cfg.unique_id = id;
+      cfg.unique_segment_manager_id = id;
       allocator_set_segment_manager(id, get_segment_manager());
    }
 
-   uint64_t database::get_unique_id() const {
-      return get_configuration().unique_id;
+   uint64_t database::get_unique_segment_manager_id() const {
+      return get_configuration().unique_segment_manager_id;
+   }
+
+   void database::set_writable_segment_manager_id( uint64_t id ) {
+      auto& cfg = get_configuration();
+      if (cfg.writable_segment_manager_id != 0) {
+         BOOST_THROW_EXCEPTION( std::logic_error("writable_segment_manager_id: unique_segment_manager_id already set") );
+         return;
+      }
+      if (id == 0 || id > max_segment_manager_id) {
+         std::stringstream ss;
+         ss << "writable_segment_manager_id: invalid unique_segment_manager_id: " << id;
+         BOOST_THROW_EXCEPTION( std::logic_error(ss.str()) );
+         return;
+      }
+      cfg.writable_segment_manager_id = id;
+   }
+
+   uint64_t database::get_writable_segment_manager_id() const {
+      return get_configuration().writable_segment_manager_id;
    }
 
    static std::unordered_map<uint64_t, undo_index_events *> s_undo_index_events = {};
@@ -230,11 +250,13 @@ namespace chainbase {
    void add_undo_index_events(undo_index_events *event) {
       if (event == nullptr) {
          BOOST_THROW_EXCEPTION( std::logic_error("event is nullptr") );
+         return;
       }
       uint64_t instance_id = event->get_instance_id();
       auto it = s_undo_index_events.find(instance_id);
       if (it != s_undo_index_events.end()) {
          BOOST_THROW_EXCEPTION( std::logic_error("instance id already exists") );
+         return;
       }
 
       s_undo_index_events.emplace(instance_id, event);
@@ -244,10 +266,12 @@ namespace chainbase {
       auto it = s_undo_index_events.find(instance_id);
       if (it == s_undo_index_events.end()) {
          BOOST_THROW_EXCEPTION( std::logic_error(std::string("clear_undo_index_events: instance id not found: ") + std::to_string(instance_id)) );
+         return;
       }
 
       if (it->second->get_instance_id() != instance_id) {
          BOOST_THROW_EXCEPTION( std::logic_error("instance id not match") );
+         return;
       }
 
       s_undo_index_events.erase(it);
@@ -270,11 +294,22 @@ namespace chainbase {
       return it->second->is_read_only();
    }
 
-   uint64_t database_get_unique_id(segment_manager *manager) {
+   uint64_t database_get_unique_segment_manager_id(segment_manager *manager) {
       auto *cfg = manager->find< database_configure >( database_configure_name ).first;
       if (!cfg) {
-         BOOST_THROW_EXCEPTION( std::logic_error("database_get_unique_id: database_configure not found") );
+         BOOST_THROW_EXCEPTION( std::logic_error("database_get_unique_segment_manager_id: database_configure not found") );
+      } else {
+         return cfg->unique_segment_manager_id;
       }
-      return cfg->unique_id;
    }
+
+   uint64_t database_get_writable_segment_manager_id(segment_manager *manager) {
+      auto *cfg = manager->find< database_configure >( database_configure_name ).first;
+      if (!cfg) {
+         BOOST_THROW_EXCEPTION( std::logic_error("database_get_unique_segment_manager_id: database_configure not found") );
+      } else {
+         return cfg->writable_segment_manager_id;
+      }
+   }
+
 }  // namespace chainbase

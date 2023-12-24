@@ -44,5 +44,6 @@ namespace chainbase {
     size_t allocator_get_segment_manager_id(segment_manager *manager);
     segment_manager *allocator_get_segment_manager_by_id(uint64_t manager_manager_id);
 
-    uint64_t database_get_unique_id(segment_manager *manager); //implemented in database.cpp
+    uint64_t database_get_unique_segment_manager_id(segment_manager *manager); //implemented in database.cpp
+    uint64_t database_get_writable_segment_manager_id(segment_manager *manager);
 } // namespace chainbase

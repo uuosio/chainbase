@@ -58,7 +58,8 @@ namespace chainbase {
    struct database_configure {
       uint64_t instance_id;
       uint64_t database_id;
-      uint64_t unique_id;
+      uint64_t unique_segment_manager_id;
+      uint64_t writable_segment_manager_id;
    };
    static const auto database_configure_name = "database_configure";
    /**
@@ -553,8 +554,11 @@ namespace chainbase {
          void set_configuration(const database_configure& config);
          database_configure& get_configuration() const;
 
-         void set_unique_id( uint64_t id );
-         uint64_t get_unique_id() const;
+         void set_unique_segment_manager_id( uint64_t id );
+         uint64_t get_unique_segment_manager_id() const;
+
+         void set_writable_segment_manager_id( uint64_t id );
+         uint64_t get_writable_segment_manager_id() const;
 
       protected:
          pinnable_mapped_file                                        _db_file;

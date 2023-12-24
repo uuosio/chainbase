@@ -64,6 +64,8 @@ namespace chainbase {
          if (this != &other) {
             dec_refcount();
             _data = other._data;
+            auto tmp = allocator_type(other._alloc);
+            swap(_alloc, tmp);
             if (_data != nullptr) {
                ++_data->reference_count;
             }
@@ -74,6 +76,8 @@ namespace chainbase {
          if (this != &other) {
             dec_refcount();
             _data = other._data;
+            auto tmp = allocator_type(other._alloc);
+            swap(_alloc, tmp);
             other._data = nullptr;
          }
          return *this;

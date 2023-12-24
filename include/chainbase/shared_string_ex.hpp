@@ -27,7 +27,7 @@ namespace chainbase {
       using const_iterator = const char*;
 
       explicit shared_string_ex(shared_object_allocator& alloc) : _data_ptr_offset(0) {
-         uint64_t id = database_get_unique_id(alloc.get_second_allocator()->get_segment_manager());
+         uint64_t id = database_get_unique_segment_manager_id(alloc.get_second_allocator()->get_segment_manager());
          if (id > max_segment_manager_id || id == 0) {
             std::stringstream ss;
             ss << "1: shared_string_ex: invalid segment_manager_id: " << id;
@@ -37,7 +37,7 @@ namespace chainbase {
       }
 
       shared_string_ex(const allocator_type& alloc) : _data_ptr_offset(0) {
-         uint64_t id = database_get_unique_id(alloc.get_segment_manager());
+         uint64_t id = database_get_unique_segment_manager_id(alloc.get_segment_manager());
          if (id > max_segment_manager_id || id == 0) {
             std::stringstream ss;
             ss << "2: shared_string_ex: invalid segment_manager_id: " << id;
@@ -134,17 +134,42 @@ namespace chainbase {
          }
       }
 
-      void assign(const char* ptr, std::size_t _size) {
-         if (size() > 0 && _size == size() && _impl()->reference_count == 1) {
-            std::memcpy((char *)data(), ptr, _size);
+      void assign(const char* ptr, std::size_t _size, bool writable = true) {
+         if (_size == 0 && get_offset() == 0) {
             return;
          }
 
+         auto *manger = get_segment_manager();
+         uint64_t manager_id = _segment_manager_id;
+         if (writable) {
+            manager_id = database_get_writable_segment_manager_id(manger);
+         }
+
+         if (manager_id > max_segment_manager_id || manager_id == 0) {
+            std::stringstream ss;
+            ss << "assign: invalid segment manager id: " << manager_id;
+            BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
+            return;
+         }
+
+         if (get_offset() > 0) {
+            auto *impl_ptr = reinterpret_cast<impl*>(uint64_t(manger) + get_offset());
+            if (manager_id == _segment_manager_id && _size == impl_ptr->size && impl_ptr->reference_count == 1) {
+               std::memcpy((char *)data(), ptr, _size);
+               return;
+            }
+         }
+
          dec_refcount();
+         if (manager_id != _segment_manager_id) {
+            _segment_manager_id = manager_id;
+         }
+
          _data_ptr_offset = 0;
          if (_size == 0) {
             return;
          }
+
          impl* new_data = (impl*)&*get_allocator().allocate(sizeof(impl) + _size + 1);
          new_data->reference_count = 1;
          new_data->size = _size;
@@ -231,6 +256,10 @@ namespace chainbase {
          return allocator_get_segment_manager_by_id(_segment_manager_id);
       }
 
+      uint64_t get_segment_manager_id() const {
+         return _segment_manager_id;
+      }
+
       uint64_t get_offset() const {
          return _data_ptr_offset;
       }
@@ -239,6 +268,7 @@ namespace chainbase {
          auto *manager = get_segment_manager();
          if (uint64_t(ptr) < uint64_t(manager)) {
             BOOST_THROW_EXCEPTION( std::runtime_error("shared_string_ex: invalid pointer") );
+            return;
          }
          _data_ptr_offset = uint64_t(ptr) - uint64_t(manager);
       }
