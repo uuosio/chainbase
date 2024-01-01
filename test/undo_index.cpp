@@ -14,9 +14,12 @@
 #  pragma GCC diagnostic ignored "-Wfree-nonheap-object"
 #endif
 
-namespace {
-int exception_counter = 0;
-int throw_at = -1;
+namespace undo_index_tests {
+
+BOOST_AUTO_TEST_SUITE(undo_index_tests)
+
+static int exception_counter = 0;
+static int throw_at = -1;
 struct test_exception_base {};
 template<typename E>
 struct test_exception : E, test_exception_base {
@@ -89,9 +92,6 @@ struct key_impl<T C::*> { template<auto F> using fn = boost::multi_index::member
 template<auto Fn>
 using key = typename key_impl<decltype(Fn)>::template fn<Fn>;
 
-}
-
-BOOST_AUTO_TEST_SUITE(undo_index_tests)
 
 #define EXCEPTION_TEST_CASE(name)                               \
    void name##impl();                                         \
@@ -650,3 +650,5 @@ EXCEPTION_TEST_CASE(test_remove_tracking_no_session) {
 }
 
 BOOST_AUTO_TEST_SUITE_END()
+
+}

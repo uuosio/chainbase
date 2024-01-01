@@ -327,7 +327,19 @@ namespace chainbase {
       return shared_object_allocator{a.get_first_allocator(), a.get_second_allocator()};
    }
 
+   template<typename T>
+   class _created_node {
+      boost::intrusive::slist_member_hook<> hook;
 
+   public:
+      explicit _created_node(const T& t) : _current{&t} {}
+      friend bool operator==(const _created_node& a, const _created_node& b) {
+         return a._current == b._current;
+      }
+
+      typedef boost::intrusive::member_hook<_created_node, boost::intrusive::slist_member_hook<>, &_created_node::hook> member_hook;
+      bip::offset_ptr<const T> _current; // pointer to the actual node
+   };
    // Similar to boost::multi_index_container with an undo stack.
    // Indices should be instances of ordered_unique.
    template<typename T, typename Allocator, typename... Indices>
@@ -336,6 +348,7 @@ namespace chainbase {
       using id_type = std::decay_t<decltype(std::declval<T>().id)>;
       using value_type = T;
       using allocator_type = Allocator;
+      using created_node = _created_node<value_type>;
 
       static_assert((... && is_valid_index<Indices>), "Only ordered_unique indices are supported");
 
@@ -381,19 +394,6 @@ namespace chainbase {
          explicit old_node(const T& t) : value_holder<T>{t} {}
          uint64_t _mtime = 0; // Backup of the node's _mtime, to be restored on undo
          typename alloc_traits::pointer _current; // pointer to the actual node
-      };
-
-      class created_node {
-         boost::intrusive::slist_member_hook<> hook;
-
-      public:
-         explicit created_node(const T& t) : _current{&t} {}
-         friend bool operator==(const created_node& a, const created_node& b) {
-            return a._current == b._current;
-         }
-
-         typedef boost::intrusive::member_hook<created_node, boost::intrusive::slist_member_hook<>, &created_node::hook> member_hook;
-         bip::offset_ptr<const T> _current; // pointer to the actual node
       };
 
       using id_pointer = id_type*;
@@ -641,19 +641,36 @@ namespace chainbase {
          bool success = false;
          {
             auto guard0 = scope_exit{[&]{
-               if(!post_modify<true, 1>(node_ref)) { // The object id cannot be modified
-                  if(backup) {
-                     node_ref = std::move(*backup);
-                     bool success = post_modify<true, 1>(node_ref);
-                     (void)success;
-                     assert(success);
-                     assert(backup == &_old_values.front());
-                     _old_values.pop_front_and_dispose([this](pointer p){ dispose_old(*p); });
+               if constexpr(std::is_same_v<typename index0_set_type::key_type, id_type>) {
+                  if(!post_modify<true, 1>(node_ref)) { // The object id cannot be modified
+                     if(backup) {
+                        node_ref = std::move(*backup);
+                        bool success = post_modify<true, 1>(node_ref);
+                        (void)success;
+                        assert(success);
+                        assert(backup == &_old_values.front());
+                        _old_values.pop_front_and_dispose([this](pointer p){ dispose_old(*p); });
+                     } else {
+                        remove(obj);
+                     }
                   } else {
-                     remove(obj);
+                     success = true;
                   }
                } else {
-                  success = true;
+                  if(!post_modify<true, 0>(node_ref)) { // first index value type is not id_type
+                     if(backup) {
+                        node_ref = std::move(*backup);
+                        bool success = post_modify<true, 0>(node_ref);
+                        (void)success;
+                        assert(success);
+                        assert(backup == &_old_values.front());
+                        _old_values.pop_front_and_dispose([this](pointer p){ dispose_old(*p); });
+                     } else {
+                        remove(obj);
+                     }
+                  } else {
+                     success = true;
+                  }
                }
             }};
             auto old_id = obj.id;
@@ -756,10 +773,13 @@ namespace chainbase {
       }
 
       void remove_object( int64_t id ) {
-         static_assert(std::is_same_v<typename index0_set_type::key_type, id_type>, "first index must be id");
-         const value_type* val = find( typename value_type::id_type(id) );
-         if( !val ) BOOST_THROW_EXCEPTION( std::out_of_range( boost::lexical_cast<std::string>(id) ) );
-         remove( *val );
+         if constexpr (std::is_same_v<typename index0_set_type::key_type, id_type>) {
+            const value_type* val = find( typename value_type::id_type(id) );
+            if( !val ) BOOST_THROW_EXCEPTION( std::out_of_range( boost::lexical_cast<std::string>(id) ) );
+            remove( *val );
+         } else {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "remove_object can only be used when the first index is id" } );
+         }
       }
 
       class session {
@@ -979,7 +999,11 @@ namespace chainbase {
                if (get_removed_field(*iter) != erased_flag) {
                   // Non-unique items are transient and are guaranteed to be fixed
                   // by the time we finish processing old_values.
-                  post_modify<false, 1>(*iter);
+                  if constexpr(std::is_same_v<typename index0_set_type::key_type, id_type>) {
+                     post_modify<false, 1>(*iter);
+                  } else {
+                     post_modify<false, 0>(*iter);
+                  }
                } else {
                   // The item was removed.  It will be inserted when we process removed_values
                }
@@ -1147,7 +1171,7 @@ namespace chainbase {
          }
       }
 
-      void on_create(const value_type& value) noexcept {
+      void on_create(const value_type& value) {
          if(!_undo_stack.empty()) {
             // Not in old_values, removed_values, or new_ids
             to_node(value)._mtime = _monotonic_revision;
