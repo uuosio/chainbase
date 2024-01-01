@@ -340,7 +340,7 @@ namespace chainbase {
       static_assert((... && is_valid_index<Indices>), "Only ordered_unique indices are supported");
 
       undo_index() = default;
-      explicit undo_index(const Allocator& a) : _undo_stack{a}, _allocator{a}, _old_values_allocator{a} {}
+      explicit undo_index(const Allocator& a) : _undo_stack{a}, _allocator{a}, _old_values_allocator{a}, _created_values_allocator{a} {}
       ~undo_index() {
          dispose_undo();
          clear_impl<1>();
@@ -371,7 +371,7 @@ namespace chainbase {
 
       using alloc_traits = typename std::allocator_traits<Allocator>::template rebind_traits<node>;
 
-      static_assert(std::is_same_v<typename index0_set_type::key_type, id_type>, "first index must be id");
+      // static_assert(std::is_same_v<typename index0_set_type::key_type, id_type>, "first index must be id");
 
       using index0_type = boost::mp11::mp_first<boost::mp11::mp_list<Indices...>>;
       struct old_node : hook<index0_type, Allocator>, value_holder<T> {
@@ -381,6 +381,19 @@ namespace chainbase {
          explicit old_node(const T& t) : value_holder<T>{t} {}
          uint64_t _mtime = 0; // Backup of the node's _mtime, to be restored on undo
          typename alloc_traits::pointer _current; // pointer to the actual node
+      };
+
+      class created_node {
+         boost::intrusive::slist_member_hook<> hook;
+
+      public:
+         explicit created_node(const T& t) : _current{&t} {}
+         friend bool operator==(const created_node& a, const created_node& b) {
+            return a._current == b._current;
+         }
+
+         typedef boost::intrusive::member_hook<created_node, boost::intrusive::slist_member_hook<>, &created_node::hook> member_hook;
+         bip::offset_ptr<const T> _current; // pointer to the actual node
       };
 
       using id_pointer = id_type*;
@@ -433,6 +446,7 @@ namespace chainbase {
       // without allocating memory.
       //
       struct undo_state {
+         bip::offset_ptr<created_node>                      created_values_end;
          typename std::allocator_traits<Allocator>::pointer old_values_end;
          typename std::allocator_traits<Allocator>::pointer removed_values_end;
          id_type old_next_id = 0;
@@ -486,7 +500,7 @@ namespace chainbase {
          };
          alloc_traits::construct(_allocator, &*p, constructor, propagate_allocator(_allocator));
          auto guard1 = scope_exit{[&]{ alloc_traits::destroy(_allocator, &*p); }};
-         if (_create_without_undo_next_id == id_type(-1)) {
+         if (_create_without_undo_next_id == id_type(-1) && std::is_same_v<typename index0_set_type::key_type, id_type>) {
             if(!insert_impl<1>(p->_item)) {
                undo_index_on_create_end<id_type, value_type>(_instance_id, _database_id, new_id, nullptr);
                std::stringstream ss;
@@ -742,6 +756,7 @@ namespace chainbase {
       }
 
       void remove_object( int64_t id ) {
+         static_assert(std::is_same_v<typename index0_set_type::key_type, id_type>, "first index must be id");
          const value_type* val = find( typename value_type::id_type(id) );
          if( !val ) BOOST_THROW_EXCEPTION( std::out_of_range( boost::lexical_cast<std::string>(id) ) );
          remove( *val );
@@ -935,13 +950,22 @@ namespace chainbase {
          if (_undo_stack.empty()) return;
          undo_state& undo_info = _undo_stack.back();
          // erase all new_ids
-         auto& by_id = std::get<0>(_indices);
-         auto new_ids_iter = by_id.lower_bound(undo_info.old_next_id);
-         by_id.erase_and_dispose(new_ids_iter, by_id.end(), [this](pointer p){
-            undo_index_on_remove_value(_instance_id, _database_id, &*p);
-            erase_impl<1>(*p);
-            dispose_node(*p);
-         });
+         if constexpr (std::is_same_v<typename index0_set_type::key_type, id_type>) {
+            auto& by_id = std::get<0>(_indices);
+            auto new_ids_iter = by_id.lower_bound(undo_info.old_next_id);
+            by_id.erase_and_dispose(new_ids_iter, by_id.end(), [this](pointer p){
+               undo_index_on_remove_value(_instance_id, _database_id, &*p);
+               erase_impl<1>(*p);
+               dispose_node(*p);
+            });
+         } else {
+            _created_values.erase_after_and_dispose(_created_values.before_begin(), get_created_values_end(undo_info), [this](created_node *p) {
+               if (get_removed_field(*p->_current) != erased_flag) {
+                  erase_impl(const_cast<T&>(*p->_current));
+                  dispose_created(*p);
+               }
+            });
+         }
          // replace old_values
          _old_values.erase_after_and_dispose(_old_values.before_begin(), get_old_values_end(undo_info), [this, &undo_info](pointer p) {
             auto restored_mtime = to_old_node(*p)._mtime;
@@ -1057,8 +1081,9 @@ namespace chainbase {
       // Exception safety: strong
       int64_t add_session() {
          _undo_stack.emplace_back();
-         _undo_stack.back().old_values_end = _old_values.empty()?nullptr:&*_old_values.begin();
-         _undo_stack.back().removed_values_end = _removed_values.empty()?nullptr:&*_removed_values.begin();
+         _undo_stack.back().created_values_end = _created_values.empty() ? nullptr : &*_created_values.begin();
+         _undo_stack.back().old_values_end = _old_values.empty() ? nullptr : &*_old_values.begin();
+         _undo_stack.back().removed_values_end = _removed_values.empty() ? nullptr : &*_removed_values.begin();
          _undo_stack.back().old_next_id = _next_id;
          _undo_stack.back().ctime = ++_monotonic_revision;
          return ++_revision;
@@ -1126,6 +1151,11 @@ namespace chainbase {
          if(!_undo_stack.empty()) {
             // Not in old_values, removed_values, or new_ids
             to_node(value)._mtime = _monotonic_revision;
+            if constexpr(!std::is_same_v<typename index0_set_type::key_type, id_type>) {
+               auto p = created_alloc_traits::allocate(_created_values_allocator, 1);
+               created_alloc_traits::construct(_created_values_allocator, &*p, value);
+               _created_values.push_front(*p);
+            }
          }
       }
 
@@ -1156,6 +1186,13 @@ namespace chainbase {
             clear_impl<N+1>();
          }
       }
+
+      void dispose_created(created_node& node_ref) noexcept {
+         created_node* p{&node_ref};
+         created_alloc_traits::destroy(_created_values_allocator, p);
+         created_alloc_traits::deallocate(_created_values_allocator, p, 1);
+      }
+
       void dispose_node(node& node_ref) noexcept {
          node* p{&node_ref};
          alloc_traits::destroy(_allocator, p);
@@ -1236,6 +1273,15 @@ namespace chainbase {
       static void set_removed_field(const value_type& obj, int val) {
          static_cast<hook<index0_type, Allocator>&>(to_node(obj))._color = val;
       }
+
+      auto get_created_values_end(const undo_state& info) {
+         if(info.created_values_end == nullptr) {
+            return _created_values.end();
+         } else {
+            return _created_values.iterator_to(*info.created_values_end);
+         }
+      }
+
       using old_alloc_traits = typename std::allocator_traits<Allocator>::template rebind_traits<old_node>;
       indices_type _indices;
       boost::container::deque<undo_state, rebind_alloc_t<Allocator, undo_state>> _undo_stack;
@@ -1244,6 +1290,11 @@ namespace chainbase {
       rebind_alloc_t<Allocator, node> _allocator;
 
       rebind_alloc_t<Allocator, old_node> _old_values_allocator;
+
+      using created_alloc_traits = typename std::allocator_traits<Allocator>::template rebind_traits<created_node>;
+      boost::intrusive::slist<created_node, typename created_node::member_hook>     _created_values;
+      rebind_alloc_t<Allocator, created_node>                                       _created_values_allocator;
+
       id_type _next_id = 0;
       id_type _create_without_undo_next_id = id_type(-1);
       int64_t _first_next_id = 0;
