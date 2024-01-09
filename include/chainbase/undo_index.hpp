@@ -332,13 +332,14 @@ namespace chainbase {
       boost::intrusive::slist_member_hook<> hook;
 
    public:
+      _created_node(): _current{nullptr} {}
       explicit _created_node(const T& t) : _current{&t} {}
       friend bool operator==(const _created_node& a, const _created_node& b) {
          return a._current == b._current;
       }
 
       typedef boost::intrusive::member_hook<_created_node, boost::intrusive::slist_member_hook<>, &_created_node::hook> member_hook;
-      bip::offset_ptr<const T> _current; // pointer to the actual node
+      bip::offset_ptr<const T> _current = nullptr; // pointer to the actual node
    };
    // Similar to boost::multi_index_container with an undo stack.
    // Indices should be instances of ordered_unique.
@@ -1054,15 +1055,23 @@ namespace chainbase {
       auto& get_allocator() { return _allocator; }
 
       template<int N = 0>
-      bool exists(const value_type& p) const {
+      bool _exists(const value_type& p) const {
          if constexpr (N < sizeof...(Indices)) {
             auto& idx = std::get<N>(_indices);
             if (idx.find(p) != idx.end()) {
                return true;
             }
-            return exists<N+1>(p);
+            return _exists<N+1>(p);
          }
          return false;
+      }
+
+      bool exists(const value_type& p) const {
+         if constexpr (std::is_same_v<typename index0_set_type::key_type, id_type>) {
+            return _exists<1>(p);
+         } else {
+            return _exists<0>(p);
+         }
       }
 
     private:
