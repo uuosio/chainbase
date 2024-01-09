@@ -339,6 +339,7 @@ namespace chainbase {
          pinnable_mapped_file& get_mapped_file();
 
          size_t get_free_memory()const;
+         size_t get_used_memory()const;
 
          bool has_undo_session() const;
 
