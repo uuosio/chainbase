@@ -184,11 +184,40 @@ namespace chainbase {
          assign((char*)ptr, size);
       }
 
-      const char * data() const {
-         if (get_offset() == 0) {
+      const char *data() const {
+         if (size() == 0) {
             return nullptr;
          }
          return _impl()->data;
+      }
+
+      const char *get_writable_data() {
+         auto *manger = get_segment_manager();
+         uint64_t writable_manager_id = database_get_writable_segment_manager_id(manger);
+         if (_segment_manager_id == writable_manager_id) {
+            return data();
+         }
+
+         if (size() == 0) {
+            return nullptr;
+         }
+
+         auto *impl_ptr = _impl();
+
+         size_t data_size = impl_ptr->size;
+         auto *segment_manager = allocator_get_segment_manager_by_id(writable_manager_id);
+         auto alloc = allocator_type(segment_manager);
+         impl* new_data = (impl*)&*alloc.allocate(sizeof(impl) + data_size + 1);
+         new_data->reference_count = 1;
+         new_data->size = data_size;
+         std::memcpy(new_data->data, impl_ptr->data, data_size);
+         new_data->data[data_size] = '\0';
+
+         dec_refcount();
+
+         _segment_manager_id = writable_manager_id;
+         set_offset(new_data);
+         return new_data->data;
       }
 
       impl *_impl() const {

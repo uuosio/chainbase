@@ -313,7 +313,13 @@ namespace chainbase {
       if (!cfg) {
          BOOST_THROW_EXCEPTION( std::logic_error("database_get_unique_segment_manager_id: database_configure not found") );
       } else {
-         return cfg->writable_segment_manager_id;
+         auto segment_manager_id = cfg->writable_segment_manager_id;
+         if (segment_manager_id > max_segment_manager_id || segment_manager_id == 0) {
+            std::stringstream ss;
+            ss << "database_get_writable_segment_manager_id: invalid segment_manager_id: " << segment_manager_id;
+            BOOST_THROW_EXCEPTION(std::runtime_error(ss.str()));
+         }
+         return segment_manager_id;
       }
    }
 
