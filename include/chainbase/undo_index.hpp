@@ -329,7 +329,8 @@ namespace chainbase {
 
    template<typename T>
    class _created_node {
-      boost::intrusive::slist_member_hook<> hook;
+      typedef boost::intrusive::slist_member_hook<boost::intrusive::void_pointer<bip::offset_ptr<_created_node<T>>>> created_node_hook;
+      created_node_hook hook;
 
    public:
       _created_node(): _current{nullptr} {}
@@ -338,7 +339,7 @@ namespace chainbase {
          return a._current == b._current;
       }
 
-      typedef boost::intrusive::member_hook<_created_node, boost::intrusive::slist_member_hook<>, &_created_node::hook> member_hook;
+      typedef boost::intrusive::member_hook<_created_node, created_node_hook, &_created_node::hook> member_hook;
       bip::offset_ptr<const T> _current = nullptr; // pointer to the actual node
    };
    // Similar to boost::multi_index_container with an undo stack.
@@ -980,7 +981,7 @@ namespace chainbase {
                dispose_node(*p);
             });
          } else {
-            _created_values.erase_after_and_dispose(_created_values.before_begin(), get_created_values_end(undo_info), [this](created_node *p) {
+            _created_values.erase_after_and_dispose(_created_values.before_begin(), get_created_values_end(undo_info), [this](bip::offset_ptr<created_node> p) {
                if (get_removed_field(*p->_current) != erased_flag) {
                   erase_impl(const_cast<T&>(*p->_current));
                   dispose_created(*p);
