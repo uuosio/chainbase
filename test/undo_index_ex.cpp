@@ -720,6 +720,168 @@ EXCEPTION_TEST_CASE(test_remove_tracking_no_session2) {
    BOOST_CHECK(tracker.is_removed(elem1));
 }
 
+
+namespace bip = boost::interprocess;
+using segment_manager = chainbase::pinnable_mapped_file::segment_manager;
+
+template<typename T>
+struct test_allocator2 {
+   using value_type = T;
+   using pointer = bip::offset_ptr<T>;
+
+   test_allocator2() = default;
+
+   test_allocator2(segment_manager* manager) : _manager{manager} {
+      
+   }
+
+
+   template<typename U>
+   test_allocator2(const test_allocator2<U>& other) : _manager{other._manager} {
+
+   }
+
+   template<typename U>
+   struct rebind { using other = test_allocator2<U>; };
+
+   pointer allocate(std::size_t num) {
+      return pointer{(T*)_manager->allocate(num*sizeof(T))};
+   }
+
+   void deallocate(const pointer& p, std::size_t num) {
+      _manager->deallocate(&*p);
+   }
+
+   bip::offset_ptr<segment_manager> _manager;
+};
+
+struct test_element_t2 {
+   template<typename C, typename A>
+   test_element_t2(C&& c, const test_allocator2<A>&) {
+      c(*this);
+   }
+   chainbase::oid<test_element_t2> id;
+   int secondary;
+};
+
+size_t get_used_memory(segment_manager* manager) {
+   return manager->get_size() - manager->get_free_memory();
+}
+
+EXCEPTION_TEST_CASE(test_memory_usage2) {
+   char *memory = (char *)malloc(1024*1024*8);
+   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+
+   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
+                        //  boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
+   // std::cout<<"sizeof(test_element_t2):"<<sizeof(test_element_t2)<<std::endl;
+   // std::cout<<"sizeof(test_element_index::node):"<<sizeof(test_element_index::node)<<std::endl;
+   auto alloc = test_allocator2<test_element_t2>{manager};
+   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
+   auto& i0 = *ptr;
+   auto guard1 = chainbase::scope_exit{
+      [ptr](){
+         ptr->~test_element_index();
+         free(ptr);
+      }
+   };
+
+   i0.emplace([](test_element_t2& elem) { elem.secondary = 42; });
+   BOOST_TEST(i0.find(42)->secondary == 42);
+   {
+      auto session = i0.start_undo_session(true);
+   }
+   size_t used_memory = get_used_memory(manager);
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.find(12)->secondary == 12);
+   }
+   BOOST_TEST(used_memory == get_used_memory(manager));
+   used_memory = get_used_memory(manager);
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.find(12)->secondary == 12);
+      session.push();
+      i0.commit(i0.revision());
+   }
+   BOOST_TEST(sizeof(test_element_index::node) + 8 == get_used_memory(manager) - used_memory);
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.find(13)->secondary == 13);
+      session.push();
+      i0.commit(i0.revision());
+   }
+
+   BOOST_TEST(!i0.has_undo_session());
+   BOOST_TEST(i0.get_created_value_count() == 0);
+   BOOST_TEST(i0.find(42)->secondary == 42);
+   // BOOST_TEST(i0.find(12) == nullptr);
+}
+
+EXCEPTION_TEST_CASE(test_memory_usage3) {
+   char *memory = (char *)malloc(1024*1024*8);
+   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+
+   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
+                         boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
+   // std::cout<<"sizeof(test_element_t2):"<<sizeof(test_element_t2)<<std::endl;
+   // std::cout<<"sizeof(test_element_index::node):"<<sizeof(test_element_index::node)<<std::endl;
+   auto alloc = test_allocator2<test_element_t2>{manager};
+   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
+   auto& i0 = *ptr;
+   auto guard1 = chainbase::scope_exit{
+      [ptr](){
+         ptr->~test_element_index();
+         free(ptr);
+      }
+   };
+
+   i0.emplace([](test_element_t2& elem) { elem.secondary = 42; });
+   BOOST_TEST(i0.find(0)->secondary == 42);
+   {
+      auto session = i0.start_undo_session(true);
+   }
+   size_t used_memory = get_used_memory(manager);
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      BOOST_TEST(i0.get_created_value_count() == 0);
+      BOOST_TEST(i0.find(1)->secondary == 12);
+   }
+   BOOST_TEST(used_memory == get_used_memory(manager));
+   used_memory = get_used_memory(manager);
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      BOOST_TEST(i0.get_created_value_count() == 0);
+      BOOST_TEST(i0.find(1)->secondary == 12);
+      session.push();
+      i0.commit(i0.revision());
+   }
+   BOOST_TEST(sizeof(test_element_index::node) + 8 == get_used_memory(manager) - used_memory);
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      BOOST_TEST(i0.get_created_value_count() == 0);
+      BOOST_TEST(i0.find(2)->secondary == 13);
+      session.push();
+      i0.commit(i0.revision());
+   }
+
+   BOOST_TEST(!i0.has_undo_session());
+   BOOST_TEST(i0.get_created_value_count() == 0);
+   BOOST_TEST(i0.find(0)->secondary == 42);
+   // BOOST_TEST(i0.find(12) == nullptr);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 }

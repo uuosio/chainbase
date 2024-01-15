@@ -487,7 +487,6 @@ namespace chainbase {
       // without allocating memory.
       //
       struct undo_state {
-         bip::offset_ptr<created_value>                  created_values_end;
          typename std::allocator_traits<Allocator>::pointer old_values_end;
          typename std::allocator_traits<Allocator>::pointer removed_values_end;
          id_type old_next_id = 0;
@@ -1169,7 +1168,6 @@ namespace chainbase {
       // Exception safety: strong
       int64_t add_session() {
          _undo_stack.emplace_back();
-         _undo_stack.back().created_values_end = _created_values.empty() ? nullptr : &*_created_values.begin();
          _undo_stack.back().old_values_end = _old_values.empty() ? nullptr : &*_old_values.begin();
          _undo_stack.back().removed_values_end = _removed_values.empty() ? nullptr : &*_removed_values.begin();
          _undo_stack.back().old_next_id = _next_id;
