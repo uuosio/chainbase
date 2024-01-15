@@ -62,28 +62,6 @@ namespace chainbase {
       uint64_t writable_segment_manager_id;
    };
    static const auto database_configure_name = "database_configure";
-   /**
-    *  Object ID type that includes the type of the object it references
-    */
-   template<typename T>
-   class oid {
-      public:
-         oid( int64_t i = 0 ):_id(i){}
-
-         oid& operator++() { ++_id; return *this; }
-
-         friend bool operator < ( const oid& a, const oid& b ) { return a._id < b._id; }
-         friend bool operator > ( const oid& a, const oid& b ) { return a._id > b._id; }
-         friend bool operator <= ( const oid& a, const oid& b ) { return a._id <= b._id; }
-         friend bool operator >= ( const oid& a, const oid& b ) { return a._id >= b._id; }
-         friend bool operator == ( const oid& a, const oid& b ) { return a._id == b._id; }
-         friend bool operator != ( const oid& a, const oid& b ) { return a._id != b._id; }
-         friend std::ostream& operator<<(std::ostream& s, const oid& id) {
-            s << boost::core::demangle(typeid(oid<T>).name()) << '(' << id._id << ')'; return s;
-         }
-
-         int64_t _id = 0;
-   };
 
    template<uint16_t TypeNumber, typename Derived>
    struct object
@@ -586,6 +564,7 @@ namespace chainbase {
          vector<unique_ptr<abstract_index>>                          _index_map;
 
          database_configure*                                         _database_configure = nullptr;
+         uint64_t                                                    _instance_id = 0;
    };
 
    template<typename Object, typename... Args>

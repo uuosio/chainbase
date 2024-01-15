@@ -6,7 +6,6 @@
 #include <boost/test/unit_test.hpp>
 #include <boost/test/data/monomorphic.hpp>
 #include <boost/test/data/test_case.hpp>
-
 // gcc-11 adds new dynamic memory warnings that return false positives for many of the stack allocated instantiations of
 // chainbase::undo_index<>. For example, see test_insert_modify. Evaluation of the actual behavior using ASAN with gcc-11 and
 // clang-11 indicates these are false positives. The warning is disabled for gcc-11 and above.
@@ -25,12 +24,14 @@ struct test_exception : E, test_exception_base {
   template<typename... A>
   test_exception(A&&... a) : E{static_cast<E&&>(a)...} {}
 };
+
 template<typename E, typename... A>
 void throw_point(A&&... a) {
    if(throw_at != -1 && exception_counter++ >= throw_at) {
      throw test_exception<E>{static_cast<A&&>(a)...};
    }
 }
+
 template<typename F>
 void test_exceptions(const char *name, F&& f) {
    for(throw_at = 0; ; ++throw_at) {
@@ -65,8 +66,9 @@ struct test_allocator : std::allocator<T> {
    template<typename U>
    struct rebind { using other = test_allocator<U>; };
    T* allocate(std::size_t count) {
-      if (std::is_same_v<T, chainbase::_created_node<test_element_t>> ||
-          std::is_same_v<T, chainbase::_created_node<conflict_element_t>>) {
+      auto name = std::string_view(typeid(T).name());
+      // std::cout<<"allocate name:"<<boost::core::demangle(typeid(T).name())<<std::endl;
+      if (name.find("created_node") != std::string_view::npos) {
          // DO NOT THROW in undo_index::on_create
       } else {
          throw_point<std::bad_alloc>();
@@ -141,7 +143,7 @@ struct test_element_t {
    test_element_t(C&& c, const std::allocator<A>&) {
       c(*this);
    }
-   uint64_t id;
+   chainbase::oid<test_element_t> id;
    int secondary;
    throwing_copy dummy;
 };
@@ -225,11 +227,13 @@ EXCEPTION_TEST_CASE(test_insert_push2) {
       auto undo_checker = capture_state(i0);
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
+      BOOST_TEST(i0.get_created_value_count() == 1);
       BOOST_TEST(i0.find(12)->secondary == 12);
       session.push();
       i0.commit(i0.revision());
    }
    BOOST_TEST(!i0.has_undo_session());
+   BOOST_TEST(i0.get_created_value_count() == 0);
    BOOST_TEST(i0.find(42)->secondary == 42);
    BOOST_TEST(i0.find(12)->secondary == 12);
 }
@@ -285,6 +289,7 @@ EXCEPTION_TEST_CASE(test_modify_push2) {
       i0.commit(i0.revision());
    }
    BOOST_TEST(!i0.has_undo_session());
+   BOOST_TEST(i0.get_created_value_count() == 0);
    BOOST_TEST(i0.find(18)->secondary == 18);
 }
 
@@ -543,7 +548,7 @@ EXCEPTION_TEST_CASE(test_insert_non_unique2) {
 struct conflict_element_t {
    template<typename C, typename A>
    conflict_element_t(C&& c, const test_allocator<A>&) { c(*this); }
-   uint64_t id;
+   chainbase::oid<conflict_element_t> id;
    int x0;
    int x1;
    int x2;
