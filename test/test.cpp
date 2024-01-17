@@ -48,10 +48,11 @@ BOOST_AUTO_TEST_CASE( open_and_create ) {
    chainbase::database db(temp, database::read_write, 1024*1024*8);
    chainbase::database db2(temp, database::read_only, 0, true); /// open an already created db
    BOOST_CHECK_THROW( db2.add_index< book_index >(), std::runtime_error ); /// index does not exist in read only database
-   db.set_unique_id(1);
+   db.set_unique_segment_manager_id(1);
+   db.set_writable_segment_manager_id(1);
    db.set_database_id(2);
    db.set_instance_id(3);
-   BOOST_TEST(db2.get_unique_id() == 1);
+   BOOST_TEST(db2.get_unique_segment_manager_id() == 1);
    BOOST_TEST(db2.get_database_id() == 2);
    BOOST_TEST(db2.get_instance_id() == 3);
 
@@ -60,7 +61,6 @@ BOOST_AUTO_TEST_CASE( open_and_create ) {
 
 
    db2.add_index< book_index >(); /// index should exist now
-
 
    BOOST_TEST_MESSAGE( "Creating book" );
    const auto& new_book = db.create<book>( []( book& b ) {
@@ -139,18 +139,32 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
    const auto& temp = temp_dir.path();
    std::cerr << temp << " \n";
 
-   chainbase::database db(temp, database::read_write, 1024*1024*8);
-   db.add_index< book_index >();
-   db.set_unique_id(1);
-   allocator_set_segment_manager(1, db.get_segment_manager());
+   temp_directory temp_dir2;
+   const auto& temp2 = temp_dir2.path();
+   std::cerr << temp2 << " \n";
 
-   auto& idx = db.get_mutable_index< book_index >();
-   auto alloc = idx.get_allocator().get_first_allocator();
+   chainbase::database db(temp, database::read_write, 1024*1024*8);
+   chainbase::database db2(temp2, database::read_write, 1024*1024*8);
+   // db.add_index< book_index >();
+   db.set_unique_segment_manager_id(1);
+   db2.set_unique_segment_manager_id(2);
+   db.set_writable_segment_manager_id(1);
+   db2.set_writable_segment_manager_id(1);
+
+   allocator_set_segment_manager(1, db.get_segment_manager());
+   allocator_set_segment_manager(2, db2.get_segment_manager());
+
+   chainbase::allocator<char> alloc = chainbase::allocator<char>(db.get_segment_manager());
+   chainbase::allocator<char> alloc2 = chainbase::allocator<char>(db2.get_segment_manager());
+
+   // auto& idx = db.get_mutable_index< book_index >();
+   // auto alloc = idx.get_allocator().get_first_allocator();
 
    size_t free_memory = db.get_free_memory();
+
    {
-      auto s1 = shared_cow_string(*alloc);
-      auto s2 = shared_cow_string(*alloc);
+      auto s1 = shared_cow_string(alloc);
+      auto s2 = shared_cow_string(alloc);
       shared_cow_string *s1_ptr = &s1;
       // test assign method
       s1.assign("", 0);
@@ -192,15 +206,72 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
    BOOST_TEST(free_memory == db.get_free_memory());
 
    {
-      auto s1 = shared_string_ex(*alloc);
-      auto s2 = shared_string_ex(*alloc);
-      shared_string_ex *s1_ptr = &s1;
+      // test get_writable_data
+      std::cout<<"test get_writable_data\n";
+      auto s1 = shared_string_ex(alloc2);
+      s1.assign("hello", 5, false);
+      BOOST_TEST(s1.get_segment_manager_id() == 2);
+      std::string s(s1.get_writable_data(), s1.size());
+      BOOST_TEST(s1.get_segment_manager_id() == 1);
+      BOOST_TEST(s == "hello");
+   }
 
+   {
+      auto s1 = shared_string_ex(alloc);
+      auto s2 = shared_string_ex(alloc);
+      shared_string_ex *s1_ptr = &s1;
+      BOOST_TEST(s1.get_segment_manager() == db.get_segment_manager());
       // test assign method
       s1.assign("", 0);
       BOOST_TEST(nullptr == s1.data());
 
       s1.assign("hello", 5);
+
+      const char *data_old = s1.data();
+      BOOST_TEST(nullptr != data_old);
+
+      // test self assignment
+      *s1_ptr = s1;
+      BOOST_TEST(data_old == s1.data());
+
+      // test self move assignment
+      *s1_ptr = std::move(s1);
+      BOOST_TEST(data_old == s1.data());
+
+      // test normal assigment
+      s2 = s1;
+      BOOST_TEST(data_old == s2.data());
+
+      //test move assignment
+      s2 = std::move(s1);
+      BOOST_TEST(data_old == s2.data());
+      BOOST_TEST(s1.data() == nullptr);
+
+      // test move constructor
+      auto s3 = shared_string_ex(std::move(s2));
+      BOOST_TEST(data_old == s3.data());
+      BOOST_TEST(s2.data() == nullptr);
+   }
+   BOOST_TEST(free_memory == db.get_free_memory());
+
+   {
+      auto s1 = shared_string_ex(alloc2);
+      auto s2 = shared_string_ex(alloc2);
+      shared_string_ex *s1_ptr = &s1;
+      BOOST_TEST(s1.get_segment_manager() == db2.get_segment_manager());
+      // test assign method
+      s1.assign("", 0);
+      BOOST_TEST(nullptr == s1.data());
+
+      s1.assign("hello", 5, false);
+      BOOST_TEST(s1.get_segment_manager_id() == 2);
+
+      s1.assign("hello", 5, true);
+      BOOST_TEST(s1.get_segment_manager_id() == 1);
+
+      s1.assign("hello", 5, false);
+      BOOST_TEST(s1.get_segment_manager_id() == 1);
+
       const char *data_old = s1.data();
       BOOST_TEST(nullptr != data_old);
 
@@ -229,8 +300,8 @@ BOOST_AUTO_TEST_CASE( test_shared_string ) {
    BOOST_TEST(free_memory == db.get_free_memory());
 
    {
-      auto s1 = shared_object<shared_cow_string>(*alloc);
-      auto s2 = shared_object<shared_cow_string>(*alloc);
+      auto s1 = shared_object<shared_cow_string>(alloc);
+      auto s2 = shared_object<shared_cow_string>(alloc);
       shared_object<shared_cow_string> *s1_ptr = &s1;
 
       // test assign method
@@ -382,12 +453,12 @@ BOOST_AUTO_TEST_CASE( test_shared_object_allocator ) {
    temp_directory temp_dir;
    const auto& temp = temp_dir.path();
    std::cerr << temp << " \n";
-   chainbase::database db(temp, database::read_write, 1024*1024*1024);
+   chainbase::database db(temp, database::read_write, 8*1024*1024);
 
    temp_directory temp_dir2;
    const auto& temp2 = temp_dir2.path();
    std::cerr << temp2 << " \n";
-   chainbase::database db2(temp2, database::read_write, 1024*1024*1024);
+   chainbase::database db2(temp2, database::read_write, 8*1024*1024);
 
    allocator_set_segment_manager(11, db.get_segment_manager());
    allocator_set_segment_manager(12, db2.get_segment_manager());
