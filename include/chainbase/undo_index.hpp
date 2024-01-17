@@ -969,22 +969,54 @@ namespace chainbase {
       bool has_undo_session() const { return !_undo_stack.empty(); }
 
       struct delta {
-         boost::iterator_range<typename index0_set_type::const_iterator> new_values;
+         std::vector<const T*> new_values;
          boost::iterator_range<typename list_base<old_node, index0_type>::const_iterator> old_values;
          boost::iterator_range<typename list_base<node, index0_type>::const_iterator> removed_values;
       };
 
       delta last_undo_session() const {
         if(_undo_stack.empty())
-           return { { get<0>().end(), get<0>().end() },
+           return { {},
                     { _old_values.end(), _old_values.end() },
                     { _removed_values.end(), _removed_values.end() } };
          // Warning: This is safe ONLY as long as nothing exposes the undo stack to client code.
          // Compressing the undo stack does not change the logical state of the undo_index.
          const_cast<undo_index*>(this)->compress_last_undo_session();
-         return { { get<0>().lower_bound(_undo_stack.back().old_next_id), get<0>().end() },
-                  { _old_values.begin(), get_old_values_end(_undo_stack.back()) },
-                  { _removed_values.begin(), get_removed_values_end(_undo_stack.back()) } };
+         if constexpr(std::is_same_v<typename index0_set_type::key_type, id_type>) {
+            // get<0>().lower_bound(_undo_stack.back().old_next_id), get<0>().end()
+            auto ret = delta{ {},
+                     { _old_values.begin(), get_old_values_end(_undo_stack.back()) },
+                     { _removed_values.begin(), get_removed_values_end(_undo_stack.back()) } };
+
+            size_t count = 0;
+            for(auto iter = get<0>().lower_bound(_undo_stack.back().old_next_id); iter != get<0>().end(); ++iter) {
+               ++count;
+            }
+
+            ret.new_values.reserve(count);
+            for(auto iter = get<0>().lower_bound(_undo_stack.back().old_next_id); iter != get<0>().end(); ++iter) {
+               ret.new_values.push_back(&*iter);
+            }
+
+            return ret;
+         } else {
+            auto ret = delta{ {},
+                     { _old_values.begin(), get_old_values_end(_undo_stack.back()) },
+                     { _removed_values.begin(), get_removed_values_end(_undo_stack.back()) } };
+
+            size_t count = 0;
+            auto iter = _created_values.lower_bound(_undo_stack.back().old_next_id._id);
+            for(; iter != _created_values.end(); ++iter) {
+               ++count;
+            }
+
+            ret.new_values.reserve(count);
+            iter = _created_values.lower_bound(_undo_stack.back().old_next_id._id);
+            for(; iter != _created_values.end(); ++iter) {
+               ret.new_values.push_back(&iter->_current->_item);
+            }
+            return ret;
+         }
       }
 
       bool is_mature_object(const value_type& obj) const {

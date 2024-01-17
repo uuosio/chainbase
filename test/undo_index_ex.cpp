@@ -855,6 +855,9 @@ EXCEPTION_TEST_CASE(test_memory_usage3) {
       i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
       BOOST_TEST(i0.get_created_value_count() == 0);
       BOOST_TEST(i0.find(1)->secondary == 12);
+      auto delta = i0.last_undo_session();
+      BOOST_TEST(delta.new_values.size() == 1);
+      BOOST_TEST(delta.new_values[0]->secondary == 12);
    }
    BOOST_TEST(used_memory == get_used_memory(manager));
    used_memory = get_used_memory(manager);
@@ -908,7 +911,10 @@ EXCEPTION_TEST_CASE(test_commit2) {
       BOOST_TEST(i0.get_created_value_count() == 1);
       BOOST_TEST(i0.find(12)->secondary == 12);
       session.push();
-      
+      auto delta = i0.last_undo_session();
+      BOOST_TEST(delta.new_values.size() == 1);
+      BOOST_TEST(delta.new_values[0]->secondary == 12);
+
       auto revision = i0.revision();
 
       auto session2 = i0.start_undo_session(true);
@@ -916,13 +922,20 @@ EXCEPTION_TEST_CASE(test_commit2) {
       BOOST_TEST(i0.get_created_value_count() == 2);
       BOOST_TEST(i0.find(13)->secondary == 13);
       session2.push();
-      auto revision2 = i0.revision();
+      // auto revision2 = i0.revision();
+      delta = i0.last_undo_session();
+      BOOST_TEST(delta.new_values.size() == 1);
+      BOOST_TEST(delta.new_values[0]->secondary == 13);
 
       auto session3 = i0.start_undo_session(true);
       i0.emplace([](test_element_t2& elem) { elem.secondary = 14; });
       BOOST_TEST(i0.get_created_value_count() == 3);
       BOOST_TEST(i0.find(14)->secondary == 14);
       session3.push();
+      delta = i0.last_undo_session();
+      BOOST_TEST(delta.new_values.size() == 1);
+      BOOST_TEST(delta.new_values[0]->secondary == 14);
+
       auto revision3 = i0.revision();
 
       i0.commit(revision);
@@ -940,7 +953,7 @@ EXCEPTION_TEST_CASE(test_commit2) {
    BOOST_TEST(i0.find(14)->secondary == 14);
 }
 
-EXCEPTION_TEST_CASE(test_undo2) {
+EXCEPTION_TEST_CASE(test_commit_undo2) {
    char *memory = (char *)malloc(1024*1024*8);
    auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
 
@@ -996,6 +1009,71 @@ EXCEPTION_TEST_CASE(test_undo2) {
    }
 
    BOOST_TEST(!i0.has_undo_session());
+}
+
+EXCEPTION_TEST_CASE(test_last_undo_session2) {
+{
+   char *memory = (char *)malloc(1024*1024*8);
+   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+
+   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
+                         boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
+   auto alloc = test_allocator2<test_element_t2>{manager};
+   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
+   auto& i0 = *ptr;
+   auto guard1 = chainbase::scope_exit{
+      [ptr](){
+         ptr->~test_element_index();
+         free(ptr);
+      }
+   };
+
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      BOOST_TEST(i0.get_created_value_count() == 0);
+      BOOST_TEST(i0.find(0)->secondary == 12);
+      BOOST_TEST(i0.find(1)->secondary == 13);
+      auto delta = i0.last_undo_session();
+      BOOST_TEST(delta.new_values.size() == 2);
+      BOOST_TEST(delta.new_values[0]->secondary == 12);
+      BOOST_TEST(delta.new_values[1]->secondary == 13);
+   }
+}
+
+{
+   char *memory = (char *)malloc(1024*1024*8);
+   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+
+   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
+                        //  boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
+   auto alloc = test_allocator2<test_element_t2>{manager};
+   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
+   auto& i0 = *ptr;
+   auto guard1 = chainbase::scope_exit{
+      [ptr](){
+         ptr->~test_element_index();
+         free(ptr);
+      }
+   };
+
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      BOOST_TEST(i0.get_created_value_count() == 2);
+      BOOST_TEST(i0.find(12)->secondary == 12);
+      BOOST_TEST(i0.find(13)->secondary == 13);
+      auto delta = i0.last_undo_session();
+      BOOST_TEST(delta.new_values.size() == 2);
+      BOOST_TEST(delta.new_values[0]->secondary == 12);
+      BOOST_TEST(delta.new_values[1]->secondary == 13);
+   }
+}
+
 }
 
 BOOST_AUTO_TEST_SUITE_END()
