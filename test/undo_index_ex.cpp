@@ -882,6 +882,122 @@ EXCEPTION_TEST_CASE(test_memory_usage3) {
    // BOOST_TEST(i0.find(12) == nullptr);
 }
 
+EXCEPTION_TEST_CASE(test_commit2) {
+   char *memory = (char *)malloc(1024*1024*8);
+   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+
+   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
+                        //  boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
+   // std::cout<<"sizeof(test_element_t2):"<<sizeof(test_element_t2)<<std::endl;
+   // std::cout<<"sizeof(test_element_index::node):"<<sizeof(test_element_index::node)<<std::endl;
+   auto alloc = test_allocator2<test_element_t2>{manager};
+   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
+   auto& i0 = *ptr;
+   auto guard1 = chainbase::scope_exit{
+      [ptr](){
+         ptr->~test_element_index();
+         free(ptr);
+      }
+   };
+
+   i0.emplace([](test_element_t2& elem) { elem.secondary = 42; });
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.find(12)->secondary == 12);
+      session.push();
+      
+      auto revision = i0.revision();
+
+      auto session2 = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      BOOST_TEST(i0.get_created_value_count() == 2);
+      BOOST_TEST(i0.find(13)->secondary == 13);
+      session2.push();
+      auto revision2 = i0.revision();
+
+      auto session3 = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 14; });
+      BOOST_TEST(i0.get_created_value_count() == 3);
+      BOOST_TEST(i0.find(14)->secondary == 14);
+      session3.push();
+      auto revision3 = i0.revision();
+
+      i0.commit(revision);
+      BOOST_TEST(i0.get_created_value_count() == 2);
+      // i0.commit(revision2);
+      // BOOST_TEST(i0.get_created_value_count() == 1);
+      i0.commit(revision3);
+      BOOST_TEST(i0.get_created_value_count() == 0);
+   }
+   BOOST_TEST(!i0.has_undo_session());
+   BOOST_TEST(i0.get_created_value_count() == 0);
+   BOOST_TEST(i0.find(42)->secondary == 42);
+   BOOST_TEST(i0.find(12)->secondary == 12);
+   BOOST_TEST(i0.find(13)->secondary == 13);
+   BOOST_TEST(i0.find(14)->secondary == 14);
+}
+
+EXCEPTION_TEST_CASE(test_undo2) {
+   char *memory = (char *)malloc(1024*1024*8);
+   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+
+   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
+                        //  boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
+   // std::cout<<"sizeof(test_element_t2):"<<sizeof(test_element_t2)<<std::endl;
+   // std::cout<<"sizeof(test_element_index::node):"<<sizeof(test_element_index::node)<<std::endl;
+   auto alloc = test_allocator2<test_element_t2>{manager};
+   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
+   auto& i0 = *ptr;
+   auto guard1 = chainbase::scope_exit{
+      [ptr](){
+         ptr->~test_element_index();
+         free(ptr);
+      }
+   };
+
+   i0.emplace([](test_element_t2& elem) { elem.secondary = 42; });
+   {
+      auto session = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.find(12)->secondary == 12);
+      session.push();
+      auto revision = i0.revision();
+      
+      auto session2 = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      BOOST_TEST(i0.get_created_value_count() == 2);
+      BOOST_TEST(i0.find(13)->secondary == 13);
+      session2.push();
+
+      auto session3 = i0.start_undo_session(true);
+      i0.emplace([](test_element_t2& elem) { elem.secondary = 14; });
+      BOOST_TEST(i0.get_created_value_count() == 3);
+      BOOST_TEST(i0.find(14)->secondary == 14);
+      session3.push();
+
+      i0.commit(revision);
+      BOOST_TEST(i0.get_created_value_count() == 2);
+
+      i0.undo();
+      BOOST_TEST(i0.find(14) == nullptr);
+      BOOST_TEST(i0.find(13)->secondary == 13);
+      BOOST_TEST(i0.find(12)->secondary == 12);
+      BOOST_TEST(i0.get_created_value_count() == 1);
+
+      i0.undo();
+      BOOST_TEST(i0.find(14) == nullptr);
+      BOOST_TEST(i0.find(13) == nullptr);
+      BOOST_TEST(i0.find(12)->secondary == 12);
+   }
+
+   BOOST_TEST(!i0.has_undo_session());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 }

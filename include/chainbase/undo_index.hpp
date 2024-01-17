@@ -928,8 +928,8 @@ namespace chainbase {
             auto iter = _undo_stack.begin() + (_undo_stack.size() - (_revision - revision));
 
             if constexpr(!std::is_same_v<typename index0_set_type::key_type, id_type>) {
-               auto new_ids_iter = _created_values.lower_bound(iter->old_next_id._id);
-               _created_values.erase_and_dispose(new_ids_iter, _created_values.end(), [this](auto p){
+               auto end_iter = _created_values.lower_bound(iter->old_next_id._id); // get erase end iterator
+               _created_values.erase_and_dispose(_created_values.begin(), end_iter, [this](auto p) {
                   this->dispose_created(*p);
                });
             }
@@ -1006,6 +1006,10 @@ namespace chainbase {
 
       size_t get_created_value_count() const {
          return _created_values.size();
+      }
+
+      const auto& get_created_values() const {
+         return _created_values;
       }
 
       auto begin() const { return get<0>().begin(); }
