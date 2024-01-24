@@ -113,7 +113,7 @@ template<class Tag>
             BOOST_THROW_EXCEPTION( std::logic_error{ "offset_node_traits::set_left: offset is not aligned" } );
          }
 
-         if (offset >= (1LL << 43)) {
+         if (offset > (1LL << 42)) {
             BOOST_THROW_EXCEPTION( std::logic_error{ "offset_node_traits::set_left: offset is too large" } );
          }
 
