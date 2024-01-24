@@ -53,17 +53,74 @@ struct throwing_copy {
    throwing_copy& operator=(throwing_copy&&) noexcept = default;
 };
 
+namespace bip = boost::interprocess;
+using segment_manager = chainbase::pinnable_mapped_file::segment_manager;
+
 template<typename T>
-struct test_allocator : std::allocator<T> {
-   test_allocator() = default;
+struct test_allocator {
+   using value_type = T;
+   using pointer = bip::offset_ptr<T>;
+
+   test_allocator() {
+      size_t size = 1024*1024*64;
+      _manager = new ((segment_manager *)malloc(size))segment_manager{size};
+   }
+
+   ~test_allocator() {
+      _manager->~segment_manager();
+      free(_manager);
+   }
+
    template<typename U>
-   test_allocator(const test_allocator<U>&) {}
+   test_allocator(const test_allocator<U>& other) : _manager{other._manager} {
+
+   }
+
    template<typename U>
    struct rebind { using other = test_allocator<U>; };
-   T* allocate(std::size_t count) {
+
+   pointer allocate(std::size_t num) {
       throw_point<std::bad_alloc>();
-      return std::allocator<T>::allocate(count);
+      return pointer{(T*)_manager->allocate(num*sizeof(T))};
    }
+
+   void deallocate(const pointer& p, std::size_t num) {
+      _manager->deallocate(&*p);
+   }
+
+   segment_manager* get_segment_manager() {
+      return _manager;
+   }
+
+   segment_manager* _manager;
+};
+
+struct test_element_t {
+   template<typename C, typename A>
+   test_element_t(C&& c, const test_allocator<A>&) {
+      c(*this);
+   }
+   chainbase::oid<test_element_t> id;
+   int secondary;
+   throwing_copy dummy;
+};
+
+
+struct conflict_element_t {
+   template<typename C, typename A>
+   conflict_element_t(C&& c, const test_allocator<A>&) { c(*this); }
+   chainbase::oid<conflict_element_t> id;
+   int x0;
+   int x1;
+   int x2;
+   throwing_copy dummy;
+};
+
+struct basic_element_t {
+   template<typename C, typename A>
+   basic_element_t(C&& c, const test_allocator<A>&) { c(*this); }
+   chainbase::oid<basic_element_t> id;
+   throwing_copy dummy;
 };
 
 template<typename F>
@@ -74,13 +131,6 @@ struct scope_fail {
    }
    F _f;
    int _exception_count;
-};
-
-struct basic_element_t {
-   template<typename C, typename A>
-   basic_element_t(C&& c, const std::allocator<A>&) { c(*this); }
-   uint64_t id;
-   throwing_copy dummy;
 };
 
 // TODO: Replace with boost::multi_index::key once we bump our minimum Boost version to at least 1.69
@@ -114,14 +164,6 @@ EXCEPTION_TEST_CASE(test_simple) {
    element = i0.find(0);
    BOOST_TEST(element == nullptr);
 }
-
-struct test_element_t {
-   template<typename C, typename A>
-   test_element_t(C&& c, const std::allocator<A>&) { c(*this); }
-   uint64_t id;
-   int secondary;
-   throwing_copy dummy;
-};
 
 // If an exception is thrown while an undo session is active, undo will restore the state.
 template<typename C>
@@ -488,16 +530,6 @@ EXCEPTION_TEST_CASE(test_insert_non_unique) {
    BOOST_TEST(i0.find(0)->secondary == 42);
 }
 
-struct conflict_element_t {
-   template<typename C, typename A>
-   conflict_element_t(C&& c, const test_allocator<A>&) { c(*this); }
-   uint64_t id;
-   int x0;
-   int x1;
-   int x2;
-   throwing_copy dummy;
-};
-
 EXCEPTION_TEST_CASE(test_modify_conflict) {
    chainbase::undo_index<conflict_element_t, test_allocator<conflict_element_t>,
                          boost::multi_index::ordered_unique<key<&conflict_element_t::id>>,
@@ -630,7 +662,6 @@ EXCEPTION_TEST_CASE(test_remove_tracking_session) {
    BOOST_CHECK(tracker.is_removed(elem0));
    BOOST_CHECK(tracker.is_removed(elem1));
 }
-
 
 EXCEPTION_TEST_CASE(test_remove_tracking_no_session) {
    chainbase::undo_index<test_element_t, test_allocator<test_element_t>,

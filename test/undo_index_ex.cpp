@@ -14,7 +14,7 @@
 #endif
 
 namespace test {
-BOOST_AUTO_TEST_SUITE(undo_index_tests)
+BOOST_AUTO_TEST_SUITE(undo_index_tests2)
 
 static int exception_counter = 0;
 static int throw_at = -1;
@@ -58,14 +58,34 @@ struct throwing_copy {
 struct test_element_t;
 struct conflict_element_t;
 
+
+namespace bip = boost::interprocess;
+using segment_manager = chainbase::pinnable_mapped_file::segment_manager;
+
 template<typename T>
-struct test_allocator : std::allocator<T> {
-   test_allocator() = default;
+struct test_allocator {
+   using value_type = T;
+   using pointer = bip::offset_ptr<T>;
+
+   test_allocator() {
+      size_t size = 1024*1024*64;
+      _manager = new ((segment_manager *)malloc(size))segment_manager{size};
+   }
+
+   ~test_allocator() {
+      _manager->~segment_manager();
+      free(_manager);
+   }
+
    template<typename U>
-   test_allocator(const test_allocator<U>&) {}
+   test_allocator(const test_allocator<U>& other) : _manager{other._manager} {
+
+   }
+
    template<typename U>
    struct rebind { using other = test_allocator<U>; };
-   T* allocate(std::size_t count) {
+
+   pointer allocate(std::size_t num) {
       auto name = std::string_view(typeid(T).name());
       // std::cout<<"allocate name:"<<boost::core::demangle(typeid(T).name())<<std::endl;
       if (name.find("created_node") != std::string_view::npos) {
@@ -73,9 +93,48 @@ struct test_allocator : std::allocator<T> {
       } else {
          throw_point<std::bad_alloc>();
       }
-      return std::allocator<T>::allocate(count);
+      return pointer{(T*)_manager->allocate(num*sizeof(T))};
    }
+
+   void deallocate(const pointer& p, std::size_t num) {
+      _manager->deallocate(&*p);
+   }
+
+   segment_manager* get_segment_manager() {
+      return _manager;
+   }
+
+   segment_manager* _manager;
 };
+
+struct test_element_t {
+   template<typename C, typename A>
+   test_element_t(C&& c, const test_allocator<A>&) {
+      c(*this);
+   }
+   chainbase::oid<test_element_t> id;
+   int secondary;
+   throwing_copy dummy;
+};
+
+
+struct conflict_element_t {
+   template<typename C, typename A>
+   conflict_element_t(C&& c, const test_allocator<A>&) { c(*this); }
+   chainbase::oid<conflict_element_t> id;
+   int x0;
+   int x1;
+   int x2;
+   throwing_copy dummy;
+};
+
+struct basic_element_t {
+   template<typename C, typename A>
+   basic_element_t(C&& c, const test_allocator<A>&) { c(*this); }
+   chainbase::oid<basic_element_t> id;
+   throwing_copy dummy;
+};
+
 
 template<typename F>
 struct scope_fail {
@@ -85,13 +144,6 @@ struct scope_fail {
    }
    F _f;
    int _exception_count;
-};
-
-struct basic_element_t {
-   template<typename C, typename A>
-   basic_element_t(C&& c, const std::allocator<A>&) { c(*this); }
-   uint64_t id;
-   throwing_copy dummy;
 };
 
 // TODO: Replace with boost::multi_index::key once we bump our minimum Boost version to at least 1.69
@@ -111,18 +163,9 @@ using key = typename key_impl<decltype(Fn)>::template fn<Fn>;
    } \
    void name##impl ()
 
-#define DECLARE_INDEX() \
-   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{}; \
-   auto& i0 = *ptr; \
-   auto guard1 = chainbase::scope_exit{ \
-      [ptr](){ \
-         ptr->~test_element_index(); \
-         free(ptr); \
-      } \
-   };
-
 EXCEPTION_TEST_CASE(test_simple2) {
    chainbase::undo_index<basic_element_t, test_allocator<basic_element_t>, boost::multi_index::ordered_unique<key<&basic_element_t::id>>> i0;
+
    i0.emplace([](basic_element_t& elem) {});
    const basic_element_t* element = i0.find(0);
    BOOST_TEST((element != nullptr && element->id == 0));
@@ -137,16 +180,6 @@ EXCEPTION_TEST_CASE(test_simple2) {
    element = i0.find(0);
    BOOST_TEST(element == nullptr);
 }
-
-struct test_element_t {
-   template<typename C, typename A>
-   test_element_t(C&& c, const std::allocator<A>&) {
-      c(*this);
-   }
-   chainbase::oid<test_element_t> id;
-   int secondary;
-   throwing_copy dummy;
-};
 
 // If an exception is thrown while an undo session is active, undo will restore the state.
 template<typename C>
@@ -177,10 +210,9 @@ auto capture_state(const C& index) {
 }
 
 EXCEPTION_TEST_CASE(test_insert_undo2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
                         //  boost::multi_index::ordered_unique<key<&test_element_t::id>>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -196,9 +228,8 @@ EXCEPTION_TEST_CASE(test_insert_undo2) {
 }
 
 EXCEPTION_TEST_CASE(test_insert_squash2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -216,10 +247,9 @@ EXCEPTION_TEST_CASE(test_insert_squash2) {
 }
 
 EXCEPTION_TEST_CASE(test_insert_push2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
                         //  boost::multi_index::ordered_unique<key<&test_element_t::id>>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -239,9 +269,8 @@ EXCEPTION_TEST_CASE(test_insert_push2) {
 }
 
 EXCEPTION_TEST_CASE(test_modify_undo2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -255,9 +284,8 @@ EXCEPTION_TEST_CASE(test_modify_undo2) {
 }
 
 EXCEPTION_TEST_CASE(test_modify_squash2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -274,9 +302,8 @@ EXCEPTION_TEST_CASE(test_modify_squash2) {
 }
 
 EXCEPTION_TEST_CASE(test_modify_push2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -294,9 +321,8 @@ EXCEPTION_TEST_CASE(test_modify_push2) {
 }
 
 EXCEPTION_TEST_CASE(test_remove_undo2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -310,9 +336,8 @@ EXCEPTION_TEST_CASE(test_remove_undo2) {
 }
 
 EXCEPTION_TEST_CASE(test_remove_squash2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -329,9 +354,8 @@ EXCEPTION_TEST_CASE(test_remove_squash2) {
 }
 
 EXCEPTION_TEST_CASE(test_remove_push2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -348,9 +372,8 @@ EXCEPTION_TEST_CASE(test_remove_push2) {
 }
 
 EXCEPTION_TEST_CASE(test_insert_modify2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -361,9 +384,8 @@ EXCEPTION_TEST_CASE(test_insert_modify2) {
 }
 
 EXCEPTION_TEST_CASE(test_insert_modify_undo2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -381,9 +403,8 @@ EXCEPTION_TEST_CASE(test_insert_modify_undo2) {
 
 
 EXCEPTION_TEST_CASE(test_insert_modify_squash2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -402,9 +423,8 @@ EXCEPTION_TEST_CASE(test_insert_modify_squash2) {
 }
 
 EXCEPTION_TEST_CASE(test_insert_remove_undo2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -421,9 +441,8 @@ EXCEPTION_TEST_CASE(test_insert_remove_undo2) {
 }
 
 EXCEPTION_TEST_CASE(test_insert_remove_squash2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -442,9 +461,8 @@ EXCEPTION_TEST_CASE(test_insert_remove_squash2) {
 }
 
 EXCEPTION_TEST_CASE(test_modify_modify_undo2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -460,9 +478,8 @@ EXCEPTION_TEST_CASE(test_modify_modify_undo2) {
 }
 
 EXCEPTION_TEST_CASE(test_modify_modify_squash2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -480,9 +497,8 @@ EXCEPTION_TEST_CASE(test_modify_modify_squash2) {
 }
 
 EXCEPTION_TEST_CASE(test_modify_remove_undo2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -498,9 +514,8 @@ EXCEPTION_TEST_CASE(test_modify_remove_undo2) {
 }
 
 EXCEPTION_TEST_CASE(test_modify_remove_squash2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -518,9 +533,8 @@ EXCEPTION_TEST_CASE(test_modify_remove_squash2) {
 }
 
 EXCEPTION_TEST_CASE(test_squash_one2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -535,9 +549,8 @@ EXCEPTION_TEST_CASE(test_squash_one2) {
 }
 
 EXCEPTION_TEST_CASE(test_insert_non_unique2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
@@ -545,22 +558,11 @@ EXCEPTION_TEST_CASE(test_insert_non_unique2) {
    BOOST_TEST(i0.find(42)->secondary == 42);
 }
 
-struct conflict_element_t {
-   template<typename C, typename A>
-   conflict_element_t(C&& c, const test_allocator<A>&) { c(*this); }
-   chainbase::oid<conflict_element_t> id;
-   int x0;
-   int x1;
-   int x2;
-   throwing_copy dummy;
-};
-
 EXCEPTION_TEST_CASE(test_modify_conflict2) {
-   using test_element_index = chainbase::undo_index<conflict_element_t, test_allocator<conflict_element_t>,
+   chainbase::undo_index<conflict_element_t, test_allocator<conflict_element_t>,
                          boost::multi_index::ordered_unique<key<&conflict_element_t::x0>>,
                          boost::multi_index::ordered_unique<key<&conflict_element_t::x1>>,
-                         boost::multi_index::ordered_unique<key<&conflict_element_t::x2>>>;
-   DECLARE_INDEX();
+                         boost::multi_index::ordered_unique<key<&conflict_element_t::x2>>> i0;
 
    // insert 3 elements
    i0.emplace([](conflict_element_t& elem) { elem.x0 = 0; elem.x1 = 10; elem.x2 = 10; });
@@ -596,12 +598,11 @@ EXCEPTION_TEST_CASE(test_modify_conflict2) {
 
 BOOST_DATA_TEST_CASE(test_insert_fail2, boost::unit_test::data::make({true, false}), use_undo) {
 
-   using test_element_index = chainbase::undo_index<conflict_element_t, test_allocator<conflict_element_t>,
+   chainbase::undo_index<conflict_element_t, test_allocator<conflict_element_t>,
                         //  boost::multi_index::ordered_unique<key<&conflict_element_t::id>>,
                          boost::multi_index::ordered_unique<key<&conflict_element_t::x0>>,
                          boost::multi_index::ordered_unique<key<&conflict_element_t::x1>>,
-                         boost::multi_index::ordered_unique<key<&conflict_element_t::x2>>>;
-   DECLARE_INDEX();
+                         boost::multi_index::ordered_unique<key<&conflict_element_t::x2>>> i0;
 
    // insert 3 elements
    i0.emplace([](conflict_element_t& elem) { elem.x0 = 10; elem.x1 = 10; elem.x2 = 10; });
@@ -628,12 +629,10 @@ BOOST_DATA_TEST_CASE(test_insert_fail2, boost::unit_test::data::make({true, fals
 }
 
 EXCEPTION_TEST_CASE(test_modify_fail2) {
-   using test_element_index = chainbase::undo_index<conflict_element_t, test_allocator<conflict_element_t>,
+   chainbase::undo_index<conflict_element_t, test_allocator<conflict_element_t>,
                          boost::multi_index::ordered_unique<key<&conflict_element_t::x0>>,
                          boost::multi_index::ordered_unique<key<&conflict_element_t::x1>>,
-                         boost::multi_index::ordered_unique<key<&conflict_element_t::x2>>>;
-   DECLARE_INDEX();
-
+                         boost::multi_index::ordered_unique<key<&conflict_element_t::x2>>> i0;
 
    // insert 3 elements
    i0.emplace([](conflict_element_t& elem) { elem.x0 = 10; elem.x1 = 10; elem.x2 = 10; });
@@ -668,11 +667,9 @@ EXCEPTION_TEST_CASE(test_modify_fail2) {
 struct by_secondary {};
 
 BOOST_AUTO_TEST_CASE(test_project2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
                         //  boost::multi_index::ordered_unique<key<&test_element_t::id>>,
-                         boost::multi_index::ordered_unique<boost::multi_index::tag<by_secondary>, key<&test_element_t::secondary>>>;
-   DECLARE_INDEX();
-
+                         boost::multi_index::ordered_unique<boost::multi_index::tag<by_secondary>, key<&test_element_t::secondary>>> i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.project<by_secondary>(i0.begin()) == i0.get<by_secondary>().begin());
@@ -683,9 +680,8 @@ BOOST_AUTO_TEST_CASE(test_project2) {
 
 
 EXCEPTION_TEST_CASE(test_remove_tracking_session2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary>>>;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary>>> i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 20; });
    auto session = i0.start_undo_session(true);
@@ -703,9 +699,8 @@ EXCEPTION_TEST_CASE(test_remove_tracking_session2) {
 
 
 EXCEPTION_TEST_CASE(test_remove_tracking_no_session2) {
-   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
-                         boost::multi_index::ordered_unique<key<&test_element_t::secondary>>>;
-   DECLARE_INDEX();
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary>>> i0;
 
    i0.emplace([](test_element_t& elem) { elem.secondary = 20; });
    auto tracker = i0.track_removed();
@@ -720,74 +715,18 @@ EXCEPTION_TEST_CASE(test_remove_tracking_no_session2) {
    BOOST_CHECK(tracker.is_removed(elem1));
 }
 
-
-namespace bip = boost::interprocess;
-using segment_manager = chainbase::pinnable_mapped_file::segment_manager;
-
-template<typename T>
-struct test_allocator2 {
-   using value_type = T;
-   using pointer = bip::offset_ptr<T>;
-
-   test_allocator2() = default;
-
-   test_allocator2(segment_manager* manager) : _manager{manager} {
-      
-   }
-
-
-   template<typename U>
-   test_allocator2(const test_allocator2<U>& other) : _manager{other._manager} {
-
-   }
-
-   template<typename U>
-   struct rebind { using other = test_allocator2<U>; };
-
-   pointer allocate(std::size_t num) {
-      return pointer{(T*)_manager->allocate(num*sizeof(T))};
-   }
-
-   void deallocate(const pointer& p, std::size_t num) {
-      _manager->deallocate(&*p);
-   }
-
-   bip::offset_ptr<segment_manager> _manager;
-};
-
-struct test_element_t2 {
-   template<typename C, typename A>
-   test_element_t2(C&& c, const test_allocator2<A>&) {
-      c(*this);
-   }
-   chainbase::oid<test_element_t2> id;
-   int secondary;
-};
-
 size_t get_used_memory(segment_manager* manager) {
    return manager->get_size() - manager->get_free_memory();
 }
 
 EXCEPTION_TEST_CASE(test_memory_usage2) {
-   char *memory = (char *)malloc(1024*1024*8);
-   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                        //  boost::multi_index::ordered_unique<key<&test_element_t::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
+   test_element_index i0;
+   auto *manager = i0.get_allocator().get_segment_manager();
 
-   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
-                        //  boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
-                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
-   // std::cout<<"sizeof(test_element_t2):"<<sizeof(test_element_t2)<<std::endl;
-   // std::cout<<"sizeof(test_element_index::node):"<<sizeof(test_element_index::node)<<std::endl;
-   auto alloc = test_allocator2<test_element_t2>{manager};
-   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
-   auto& i0 = *ptr;
-   auto guard1 = chainbase::scope_exit{
-      [ptr](){
-         ptr->~test_element_index();
-         free(ptr);
-      }
-   };
-
-   i0.emplace([](test_element_t2& elem) { elem.secondary = 42; });
+   i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(42)->secondary == 42);
    {
       auto session = i0.start_undo_session(true);
@@ -795,7 +734,7 @@ EXCEPTION_TEST_CASE(test_memory_usage2) {
    size_t used_memory = get_used_memory(manager);
    {
       auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
       BOOST_TEST(i0.get_created_value_count() == 1);
       BOOST_TEST(i0.find(12)->secondary == 12);
    }
@@ -803,7 +742,7 @@ EXCEPTION_TEST_CASE(test_memory_usage2) {
    used_memory = get_used_memory(manager);
    {
       auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
       BOOST_TEST(i0.get_created_value_count() == 1);
       BOOST_TEST(i0.find(12)->secondary == 12);
       session.push();
@@ -812,7 +751,7 @@ EXCEPTION_TEST_CASE(test_memory_usage2) {
    BOOST_TEST(sizeof(test_element_index::node) + 8 == get_used_memory(manager) - used_memory);
    {
       auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
       BOOST_TEST(i0.get_created_value_count() == 1);
       BOOST_TEST(i0.find(13)->secondary == 13);
       session.push();
@@ -826,25 +765,14 @@ EXCEPTION_TEST_CASE(test_memory_usage2) {
 }
 
 EXCEPTION_TEST_CASE(test_memory_usage3) {
-   char *memory = (char *)malloc(1024*1024*8);
-   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+   using test_element_index = chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > >;
+   test_element_index i0;
 
-   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
-                         boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
-                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
-   // std::cout<<"sizeof(test_element_t2):"<<sizeof(test_element_t2)<<std::endl;
-   // std::cout<<"sizeof(test_element_index::node):"<<sizeof(test_element_index::node)<<std::endl;
-   auto alloc = test_allocator2<test_element_t2>{manager};
-   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
-   auto& i0 = *ptr;
-   auto guard1 = chainbase::scope_exit{
-      [ptr](){
-         ptr->~test_element_index();
-         free(ptr);
-      }
-   };
+   auto *manager = i0.get_allocator().get_segment_manager();
 
-   i0.emplace([](test_element_t2& elem) { elem.secondary = 42; });
+   i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    BOOST_TEST(i0.find(0)->secondary == 42);
    {
       auto session = i0.start_undo_session(true);
@@ -852,7 +780,7 @@ EXCEPTION_TEST_CASE(test_memory_usage3) {
    size_t used_memory = get_used_memory(manager);
    {
       auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
       BOOST_TEST(i0.get_created_value_count() == 0);
       BOOST_TEST(i0.find(1)->secondary == 12);
       auto delta = i0.last_undo_session();
@@ -863,7 +791,7 @@ EXCEPTION_TEST_CASE(test_memory_usage3) {
    used_memory = get_used_memory(manager);
    {
       auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
       BOOST_TEST(i0.get_created_value_count() == 0);
       BOOST_TEST(i0.find(1)->secondary == 12);
       session.push();
@@ -872,7 +800,7 @@ EXCEPTION_TEST_CASE(test_memory_usage3) {
    BOOST_TEST(sizeof(test_element_index::node) + 8 == get_used_memory(manager) - used_memory);
    {
       auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
       BOOST_TEST(i0.get_created_value_count() == 0);
       BOOST_TEST(i0.find(2)->secondary == 13);
       session.push();
@@ -886,28 +814,14 @@ EXCEPTION_TEST_CASE(test_memory_usage3) {
 }
 
 EXCEPTION_TEST_CASE(test_commit2) {
-   char *memory = (char *)malloc(1024*1024*8);
-   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                        //  boost::multi_index::ordered_unique<key<&test_element_t::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
-   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
-                        //  boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
-                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
-   // std::cout<<"sizeof(test_element_t2):"<<sizeof(test_element_t2)<<std::endl;
-   // std::cout<<"sizeof(test_element_index::node):"<<sizeof(test_element_index::node)<<std::endl;
-   auto alloc = test_allocator2<test_element_t2>{manager};
-   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
-   auto& i0 = *ptr;
-   auto guard1 = chainbase::scope_exit{
-      [ptr](){
-         ptr->~test_element_index();
-         free(ptr);
-      }
-   };
-
-   i0.emplace([](test_element_t2& elem) { elem.secondary = 42; });
+   i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    {
       auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
       BOOST_TEST(i0.get_created_value_count() == 1);
       BOOST_TEST(i0.find(12)->secondary == 12);
       session.push();
@@ -918,7 +832,7 @@ EXCEPTION_TEST_CASE(test_commit2) {
       auto revision = i0.revision();
 
       auto session2 = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
       BOOST_TEST(i0.get_created_value_count() == 2);
       BOOST_TEST(i0.find(13)->secondary == 13);
       session2.push();
@@ -928,7 +842,7 @@ EXCEPTION_TEST_CASE(test_commit2) {
       BOOST_TEST(delta.new_values[0]->secondary == 13);
 
       auto session3 = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 14; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 14; });
       BOOST_TEST(i0.get_created_value_count() == 3);
       BOOST_TEST(i0.find(14)->secondary == 14);
       session3.push();
@@ -954,41 +868,27 @@ EXCEPTION_TEST_CASE(test_commit2) {
 }
 
 EXCEPTION_TEST_CASE(test_commit_undo2) {
-   char *memory = (char *)malloc(1024*1024*8);
-   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                        //  boost::multi_index::ordered_unique<key<&test_element_t::id>>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0{};
 
-   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
-                        //  boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
-                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
-   // std::cout<<"sizeof(test_element_t2):"<<sizeof(test_element_t2)<<std::endl;
-   // std::cout<<"sizeof(test_element_index::node):"<<sizeof(test_element_index::node)<<std::endl;
-   auto alloc = test_allocator2<test_element_t2>{manager};
-   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
-   auto& i0 = *ptr;
-   auto guard1 = chainbase::scope_exit{
-      [ptr](){
-         ptr->~test_element_index();
-         free(ptr);
-      }
-   };
-
-   i0.emplace([](test_element_t2& elem) { elem.secondary = 42; });
+   i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
    {
       auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
       BOOST_TEST(i0.get_created_value_count() == 1);
       BOOST_TEST(i0.find(12)->secondary == 12);
       session.push();
       auto revision = i0.revision();
       
       auto session2 = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
       BOOST_TEST(i0.get_created_value_count() == 2);
       BOOST_TEST(i0.find(13)->secondary == 13);
       session2.push();
 
       auto session3 = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 14; });
+      i0.emplace([](test_element_t& elem) { elem.secondary = 14; });
       BOOST_TEST(i0.get_created_value_count() == 3);
       BOOST_TEST(i0.find(14)->secondary == 14);
       session3.push();
@@ -1012,68 +912,70 @@ EXCEPTION_TEST_CASE(test_commit_undo2) {
 }
 
 EXCEPTION_TEST_CASE(test_last_undo_session2) {
-{
-   char *memory = (char *)malloc(1024*1024*8);
-   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
-
-   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
-                         boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
-                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
-   auto alloc = test_allocator2<test_element_t2>{manager};
-   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
-   auto& i0 = *ptr;
-   auto guard1 = chainbase::scope_exit{
-      [ptr](){
-         ptr->~test_element_index();
-         free(ptr);
+   {
+      chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                           boost::multi_index::ordered_unique<key<&test_element_t::id>>,
+                           boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
+      {
+         auto session = i0.start_undo_session(true);
+         i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
+         i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
+         BOOST_TEST(i0.get_created_value_count() == 0);
+         BOOST_TEST(i0.find(0)->secondary == 12);
+         BOOST_TEST(i0.find(1)->secondary == 13);
+         auto delta = i0.last_undo_session();
+         BOOST_TEST(delta.new_values.size() == 2);
+         BOOST_TEST(delta.new_values[0]->secondary == 12);
+         BOOST_TEST(delta.new_values[1]->secondary == 13);
       }
-   };
+   }
 
    {
-      auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
-      BOOST_TEST(i0.get_created_value_count() == 0);
-      BOOST_TEST(i0.find(0)->secondary == 12);
-      BOOST_TEST(i0.find(1)->secondary == 13);
-      auto delta = i0.last_undo_session();
-      BOOST_TEST(delta.new_values.size() == 2);
-      BOOST_TEST(delta.new_values[0]->secondary == 12);
-      BOOST_TEST(delta.new_values[1]->secondary == 13);
+      chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                           //  boost::multi_index::ordered_unique<key<&test_element_t::id>>,
+                           boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
+
+      {
+         auto session = i0.start_undo_session(true);
+         i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
+         i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
+         BOOST_TEST(i0.get_created_value_count() == 2);
+         BOOST_TEST(i0.find(12)->secondary == 12);
+         BOOST_TEST(i0.find(13)->secondary == 13);
+         auto delta = i0.last_undo_session();
+         BOOST_TEST(delta.new_values.size() == 2);
+         BOOST_TEST(delta.new_values[0]->secondary == 12);
+         BOOST_TEST(delta.new_values[1]->secondary == 13);
+      }
    }
+
 }
 
-{
-   char *memory = (char *)malloc(1024*1024*8);
-   auto manager = new ((segment_manager *)memory)segment_manager{1024*1024*8};
+EXCEPTION_TEST_CASE(test_new_session_insert_new_session_remove_undo2) {
+   chainbase::undo_index<test_element_t, test_allocator<test_element_t>,
+                         boost::multi_index::ordered_unique<key<&test_element_t::secondary> > > i0;
 
-   using test_element_index = chainbase::undo_index<test_element_t2, test_allocator2<test_element_t2>,
-                        //  boost::multi_index::ordered_unique<key<&test_element_t2::id>>,
-                         boost::multi_index::ordered_unique<key<&test_element_t2::secondary> > >;
-   auto alloc = test_allocator2<test_element_t2>{manager};
-   auto ptr = new ((test_element_index *)malloc(sizeof(test_element_index)))test_element_index{alloc};
-   auto& i0 = *ptr;
-   auto guard1 = chainbase::scope_exit{
-      [ptr](){
-         ptr->~test_element_index();
-         free(ptr);
-      }
-   };
-
+   i0.emplace([](test_element_t& elem) { elem.secondary = 42; });
+   BOOST_TEST(i0.find(42)->secondary == 42);
    {
+      auto undo_checker = capture_state(i0);
       auto session = i0.start_undo_session(true);
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 12; });
-      i0.emplace([](test_element_t2& elem) { elem.secondary = 13; });
-      BOOST_TEST(i0.get_created_value_count() == 2);
+      auto& obj = i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
       BOOST_TEST(i0.find(12)->secondary == 12);
-      BOOST_TEST(i0.find(13)->secondary == 13);
-      auto delta = i0.last_undo_session();
-      BOOST_TEST(delta.new_values.size() == 2);
-      BOOST_TEST(delta.new_values[0]->secondary == 12);
-      BOOST_TEST(delta.new_values[1]->secondary == 13);
-   }
-}
 
+      auto session2 = i0.start_undo_session(true);
+      i0.remove(obj);
+      BOOST_TEST(i0.find(12) == nullptr);
+
+      session2.undo();
+      BOOST_TEST(i0.find(12)->secondary == 12);
+
+      session.undo();
+      BOOST_TEST(i0.find(12) == nullptr);
+      i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
+   }
+   BOOST_TEST(i0.find(42)->secondary == 42);
+   BOOST_TEST(i0.find(12)->secondary == 12);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -284,7 +284,7 @@ void pinnable_mapped_file::save_database_file() {
             std::cerr << "CHAINBASE: ERROR: madvise failed: " << strerror(errno) << std::endl;
          }
          if (-1 == madvise(src+offset, _db_size_multiple_requirement, MADV_FREE)) {
-            std::cerr << "CHAINBASE: ERROR: madvise failed: " << strerror(errno) << std::endl;
+            std::cerr << "CHAINBASE: ERROR 2: madvise failed: " << strerror(errno) << std::endl;
          }
       }
 

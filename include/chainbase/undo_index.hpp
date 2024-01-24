@@ -101,12 +101,27 @@ namespace chainbase {
    // get an offset of 4, since `sizeof(offset_node_base) == 16`, so we could not have
    // difference between two different `node_ptr` be less than 16.
    // --------------------------------------------------------------------------------------
-   template<class Tag>
+template<class Tag>
    struct offset_node_traits {
       using node = offset_node_base<Tag>;
       using node_ptr = node*;
       using const_node_ptr = const node*;
       using color = int;
+
+      static void verify_offset(int64_t offset) {
+         if ((offset & 0x3) != 0) {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "offset_node_traits::set_left: offset is not aligned" } );
+         }
+
+         if (offset >= (1LL << 43)) {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "offset_node_traits::set_left: offset is too large" } );
+         }
+
+         if (offset < -(1LL << 43)) {
+            BOOST_THROW_EXCEPTION( std::logic_error{ "offset_node_traits::set_left: offset is too small" } );
+         }
+      }
+
       static node_ptr get_parent(const_node_ptr n) {
          if(n->_parent == 1) return nullptr;
          return (node_ptr)((char*)n + (n->_parent << 2));
@@ -115,7 +130,7 @@ namespace chainbase {
          if(parent == nullptr) n->_parent = 1;
          else {
             int64_t offset = (char*)parent - (char*)n;
-            assert((offset & 0x3) == 0);
+            verify_offset(offset);
             n->_parent = offset >> 2;
          }
       }
@@ -127,7 +142,7 @@ namespace chainbase {
          if(left == nullptr) n->_left = 1;
          else {
             int64_t offset = (char*)left - (char*)n;
-            assert((offset & 0x3) == 0);
+            verify_offset(offset);
             n->_left = offset >> 2;
          }
       }
@@ -139,7 +154,7 @@ namespace chainbase {
          if(right == nullptr) n->_right = 1;
          else {
             int64_t offset = (char*)right - (char*)n;
-            assert((offset & 0x3) == 0);
+            verify_offset(offset);
             n->_right = offset >> 2;
          }
       }
@@ -546,6 +561,7 @@ namespace chainbase {
                std::stringstream ss;
                ss << "emplace 1: could not insert object: " << boost::core::demangle( typeid( value_type ).name() );
                ss << "with id: " << new_id;
+               ss << ", database_id: " << _database_id;
                ss << ", most likely a uniqueness constraint was violated";
                BOOST_THROW_EXCEPTION( std::logic_error{ ss.str() } );
             }
@@ -556,6 +572,7 @@ namespace chainbase {
                std::stringstream ss;
                ss << "emplace 2: could not insert object: " << boost::core::demangle( typeid( value_type ).name() );
                ss << " with id:" << new_id;
+               ss << ", database_id: " << _database_id;
                ss << ", most likely a uniqueness constraint was violated";
                BOOST_THROW_EXCEPTION( std::logic_error{ ss.str() } );
             }
@@ -1102,13 +1119,20 @@ namespace chainbase {
             dispose_old(*p);
          });
          // insert all removed_values
-         _removed_values.erase_after_and_dispose(_removed_values.before_begin(), get_removed_values_end(undo_info), [this, &undo_info](pointer p) {
-            if (p->id < undo_info.old_next_id) {
-               set_removed_field(*p, 0); // Will be overwritten by tree algorithms, because we're reusing the color.
-               insert_impl(*p);
-               undo_index_on_restore_removed_value(_instance_id, _database_id, &*p);
+         _removed_values.erase_after_and_dispose(_removed_values.before_begin(), get_removed_values_end(undo_info), [this, &undo_info](pointer removed) {
+            if (removed->id < undo_info.old_next_id) {
+               set_removed_field(*removed, 0); // Will be overwritten by tree algorithms, because we're reusing the color.
+               insert_impl(*removed);
+               undo_index_on_restore_removed_value(_instance_id, _database_id, &*removed);
+
+               if constexpr(!std::is_same_v<typename index0_set_type::key_type, id_type>) {
+                  if (removed->id >= _undo_stack.front().old_next_id._id) {
+                     // add back created value
+                     insert_created_value(*removed);
+                  }
+               }
             } else {
-               dispose_node(*p);
+               dispose_node(*removed);
             }
          });
          _next_id = undo_info.old_next_id;
@@ -1269,20 +1293,24 @@ namespace chainbase {
          }
       }
 
+      void insert_created_value(const value_type& value) {
+         if constexpr(!std::is_same_v<typename index0_set_type::key_type, id_type>) {
+            auto p = created_alloc_traits::allocate(_created_values_allocator, 1);
+            created_alloc_traits::construct(_created_values_allocator, &*p, value);
+            auto [iter, inserted] = _created_values.insert_unique(p->_item);
+            if (!inserted) {
+               created_alloc_traits::destroy(_created_values_allocator, &*p);
+               created_alloc_traits::deallocate(_created_values_allocator, p, 1);
+               BOOST_THROW_EXCEPTION( std::logic_error{ "on_create: could not insert object, most likely a uniqueness constraint was violated" } );
+            }
+         }
+      }
+
       void on_create(const value_type& value) {
          if(!_undo_stack.empty()) {
             // Not in old_values, removed_values, or new_ids
             to_node(value)._mtime = _monotonic_revision;
-            if constexpr(!std::is_same_v<typename index0_set_type::key_type, id_type>) {
-               auto p = created_alloc_traits::allocate(_created_values_allocator, 1);
-               created_alloc_traits::construct(_created_values_allocator, &*p, value);
-               auto [iter, inserted] = _created_values.insert_unique(p->_item);
-               if (!inserted) {
-                  created_alloc_traits::destroy(_created_values_allocator, &*p);
-                  created_alloc_traits::deallocate(_created_values_allocator, p, 1);
-                  BOOST_THROW_EXCEPTION( std::logic_error{ "on_create: could not insert object, most likely a uniqueness constraint was violated" } );
-               }
-            }
+            insert_created_value(value);
          }
       }
 
