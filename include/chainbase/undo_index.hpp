@@ -957,11 +957,15 @@ template<class Tag>
       }
 
       const undo_index& indices() const { return *this; }
+
       template<typename Tag>
       const auto& get() const { return std::get<find_tag<Tag, Indices...>::value>(_indices); }
 
       template<int N>
       const auto& get() const { return std::get<N>(_indices); }
+
+      template<typename Tag>
+      size_t get_index_position() const { return find_tag<Tag, Indices...>::value; }
 
       std::size_t size() const {
          return std::get<0>(_indices).size();
