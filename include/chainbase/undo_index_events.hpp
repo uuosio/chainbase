@@ -7,9 +7,7 @@ namespace chainbase {
         public:
             undo_index_events() {}
             virtual uint64_t get_instance_id() const = 0;
-            virtual bool is_cache_enabled() const = 0;
             virtual bool is_read_only() const = 0;
-            virtual const void *find_in_cache(uint64_t instance_id, uint64_t database_id, const std::type_info& key_type_info, const std::type_info& value_type_info, const void *key, bool& cached) = 0;
             virtual void on_find_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& key_type_info, const std::type_info& value_type_info, const void *key) = 0;
             virtual void on_find_end(uint64_t instance_id, uint64_t database_id, const std::type_info& key_type_info, const std::type_info& value_type_info, const void *key, const void *obj) = 0;
             virtual void on_lower_bound_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& key_type_info, const std::type_info& value_type_info, const void *key) = 0;
@@ -20,10 +18,9 @@ namespace chainbase {
             virtual void on_equal_range_end(uint64_t instance_id, uint64_t database_id, const std::type_info& key_type_info, const std::type_info& value_type_info, const void *key) = 0;
             virtual void on_create_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& value_type_info, const void *id) = 0;
             virtual void on_create_end(uint64_t instance_id, uint64_t database_id, const std::type_info& value_type_info, const void *id, const void *obj) = 0;
-            
-            virtual void on_undo_add_value(uint64_t instance_id, uint64_t database_id, const std::type_info& value_type_info, const void *obj) = 0;
 
-            virtual void on_undo_remove_value(uint64_t instance_id, uint64_t database_id, const std::type_info& value_type_info, const void *obj) = 0;
+            virtual void on_add_value_in_undo(uint64_t instance_id, uint64_t database_id, const std::type_info& value_type_info, const void *obj) = 0;
+            virtual void on_remove_value_in_undo(uint64_t instance_id, uint64_t database_id, const std::type_info& value_type_info, const void *obj) = 0;
 
             virtual void on_modify_begin(uint64_t instance_id, uint64_t database_id, const std::type_info& value_type_info, const void *obj) = 0;
             virtual void on_modify_end(uint64_t instance_id, uint64_t database_id, const std::type_info& value_type_info, const void *obj, bool success) = 0;
@@ -35,15 +32,7 @@ namespace chainbase {
     void add_undo_index_events(undo_index_events *event);
     void clear_undo_index_events(uint64_t instance_id);
 
-    bool undo_index_cache_enabled(uint64_t instance_id);
     bool undo_index_is_read_only(uint64_t instance_id);
-
-    template<typename K, typename V>
-    inline const void *undo_index_find_in_cache(uint64_t instance_id, uint64_t database_id, const K& key, bool& cached) {
-        auto event = get_undo_index_events(instance_id);
-        if (!event) return nullptr;
-        return event->find_in_cache(instance_id, database_id, typeid(K), typeid(V), &key, cached);
-    }
 
     template<typename K, typename V>
     inline const void undo_index_on_find_begin(uint64_t instance_id, uint64_t database_id, const K& key) {
@@ -118,17 +107,17 @@ namespace chainbase {
     }
 
     template<typename V>
-    inline void undo_index_on_restore_removed_value(uint64_t instance_id, uint64_t database_id, const V *obj) {
+    inline void undo_index_on_add_value_in_undo(uint64_t instance_id, uint64_t database_id, const V *obj) {
         auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        event->on_undo_add_value(instance_id, database_id, typeid(V), obj);
+        event->on_add_value_in_undo(instance_id, database_id, typeid(V), obj);
     }
 
     template<typename V>
-    inline void undo_index_on_remove_value(uint64_t instance_id, uint64_t database_id, const V *obj) {
+    inline void undo_index_on_remove_value_in_undo(uint64_t instance_id, uint64_t database_id, const V *obj) {
         auto event = get_undo_index_events(instance_id);
         if (!event) return;
-        event->on_undo_remove_value(instance_id, database_id, typeid(V), obj);
+        event->on_remove_value_in_undo(instance_id, database_id, typeid(V), obj);
     }
 
     template<typename V>

@@ -259,20 +259,6 @@ template<class Tag>
       // Allow compatible keys to match multi_index
       template<typename K>
       auto find(K&& k) const {
-         if (undo_index_cache_enabled(_instance_id)) {
-            bool cached = false;
-            auto obj = undo_index_find_in_cache<K, typename Node::value_type>(_instance_id, _database_id, k, cached);
-            if (cached) {
-               undo_index_on_find_end<K, typename Node::value_type>(_instance_id, _database_id, k, static_cast<const typename Node::value_type *>(obj));
-               if (obj) {
-                  auto it = iterator_to(*static_cast<const typename Node::value_type *>(obj));
-                  return it;
-               } else {
-                  return end();
-               }
-            }
-         }
-
          undo_index_on_find_begin<K, typename Node::value_type>(_instance_id, _database_id, k);
 
          auto iter = base_type::find(static_cast<K&&>(k), this->key_comp());
@@ -1083,7 +1069,7 @@ template<class Tag>
             auto& by_id = std::get<0>(_indices);
             auto new_ids_iter = by_id.lower_bound(undo_info.old_next_id);
             by_id.erase_and_dispose(new_ids_iter, by_id.end(), [this](pointer p){
-               undo_index_on_remove_value(_instance_id, _database_id, &*p);
+               undo_index_on_remove_value_in_undo(_instance_id, _database_id, &*p);
                erase_impl<1>(*p);
                dispose_node(*p);
             });
@@ -1091,7 +1077,7 @@ template<class Tag>
             auto new_ids_iter = _created_values.lower_bound(undo_info.old_next_id._id);
             _created_values.erase_and_dispose(new_ids_iter, _created_values.end(), [this](auto p){
                if (get_removed_field(p->_current->_item) != erased_flag) {
-                  undo_index_on_remove_value(_instance_id, _database_id, &p->_current->_item);
+                  undo_index_on_remove_value_in_undo(_instance_id, _database_id, &p->_current->_item);
                   this->erase_impl(p->_current->_item);
                   this->dispose_node(*p->_current);
                }
@@ -1127,7 +1113,7 @@ template<class Tag>
             if (removed->id < undo_info.old_next_id) {
                set_removed_field(*removed, 0); // Will be overwritten by tree algorithms, because we're reusing the color.
                insert_impl(*removed);
-               undo_index_on_restore_removed_value(_instance_id, _database_id, &*removed);
+               undo_index_on_add_value_in_undo(_instance_id, _database_id, &*removed);
 
                if constexpr(!std::is_same_v<typename index0_set_type::key_type, id_type>) {
                   if (removed->id >= _undo_stack.front().old_next_id._id) {
