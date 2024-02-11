@@ -1043,6 +1043,19 @@ template<class Tag>
          return true;
       }
 
+      bool is_new_object(const value_type& obj) const {
+         if(_undo_stack.empty()) {
+            return false;
+         }
+
+         auto& undo_info = _undo_stack.front();
+         if ( obj.id >= undo_info.old_next_id ) {
+            return true;
+         }
+
+         return false;
+      }
+
       size_t get_created_value_count() const {
          return _created_values.size();
       }
