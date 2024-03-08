@@ -165,7 +165,13 @@ namespace chainbase {
 
    size_t database::get_used_memory()const {
       auto segment = _db_file.get_segment_manager();
-      return segment->get_size() - segment->get_free_memory();
+      auto used_size = segment->get_size() - segment->get_free_memory();
+      return used_size;
+   }
+
+   size_t database::get_total_memory()const {
+      auto segment = _db_file.get_segment_manager();
+      return segment->get_size();
    }
 
    void database::set_read_only_mode() {
