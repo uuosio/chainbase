@@ -327,6 +327,10 @@ namespace chainbase {
          void set_read_only_mode();
          void unset_read_only_mode();
 
+         size_t check_memory_and_flush_if_needed() {
+            return _db_file.check_memory_and_flush_if_needed();
+         }
+
          template<typename MultiIndexType>
          void add_index() {
             const uint16_t type_id = generic_index<MultiIndexType>::value_type::type_id;

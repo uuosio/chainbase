@@ -44,6 +44,8 @@ namespace chainbase {
          new_data->data[size] = '\0';
          _data = new_data;
       }
+      explicit shared_cow_string(std::string_view sv, const allocator_type& alloc): shared_cow_string(sv.data(), sv.size(), alloc) {
+      }
       explicit shared_cow_string(std::size_t size, boost::container::default_init_t, const allocator_type& alloc) : shared_cow_string(alloc) {
          impl* new_data = (impl*)&*_alloc.allocate(sizeof(impl) + size + 1);
          new_data->reference_count = 1;
@@ -59,6 +61,7 @@ namespace chainbase {
       shared_cow_string(shared_cow_string&& other) : _data(other._data), _alloc(other._alloc) {
          other._data = nullptr;
       }
+
       shared_cow_string& operator=(const shared_cow_string& other) {
          // *this = shared_cow_string{other};
          if (this != &other) {
