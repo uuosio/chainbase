@@ -27,7 +27,7 @@
 #include "undo_index_events.hpp"
 
 namespace chainbase {
-   const static int64_t max_database_count = 1000;
+   const static int64_t max_database_count = 100000;
    const static int64_t max_next_id = std::numeric_limits<int64_t>::max()/max_database_count;
    const static int64_t max_create_without_undo_next_id = std::numeric_limits<int64_t>::max()/max_database_count/2;
 
@@ -1175,8 +1175,28 @@ template<class Tag>
       bool _exists(const value_type& p) const {
          if constexpr (N < sizeof...(Indices)) {
             auto& idx = std::get<N>(_indices);
-            if (idx.find(p) != idx.end()) {
-               return true;
+            
+            if (idx.empty()) {
+                return _exists<N+1>(p);
+            }
+
+            using base_type = typename std::decay_t<decltype(idx)>::base_type;
+            typename base_type::key_compare cmp;
+            typename base_type::key_of_value key_extractor;
+
+            const auto& min_val = *idx.begin();
+            auto end_it = idx.end();
+            --end_it;
+            const auto& max_val = *end_it;
+
+            auto p_key = key_extractor(p);
+            auto min_key = key_extractor(min_val);
+            auto max_key = key_extractor(max_val);
+
+            if (!cmp(p_key, min_key) && !cmp(max_key, p_key)) {
+                if (idx.find(p) != idx.end()) {
+                   return true;
+                }
             }
             return _exists<N+1>(p);
          }
