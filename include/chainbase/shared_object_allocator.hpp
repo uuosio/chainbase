@@ -32,8 +32,8 @@ namespace chainbase {
         shared_object_allocator& operator=(shared_object_allocator&&) = delete;
         shared_object_allocator& operator=(const shared_object_allocator&) = delete;
 
-        allocator_pointer get_first_allocator() { return _alloc1; }
-        allocator_pointer get_second_allocator() { return _alloc2; }
+        allocator_pointer get_first_allocator() const { return _alloc1; }
+        allocator_pointer get_second_allocator() const { return _alloc2; }
 
     private:
         allocator_pointer _alloc1;

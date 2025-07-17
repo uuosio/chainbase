@@ -15,6 +15,8 @@
 
 namespace chainbase {
 
+pinnable_mapped_file::segment_manager_map_t  pinnable_mapped_file::_segment_manager_map;
+
 const char* chainbase_error_category::name() const noexcept {
    return "chainbase";
 }
@@ -186,6 +188,10 @@ pinnable_mapped_file::pinnable_mapped_file(const std::filesystem::path& dir, boo
          throw;
       }
    }
+
+   std::byte* start = (std::byte*)_segment_manager;
+   assert(_segment_manager_map.find(start) == _segment_manager_map.end());
+   _segment_manager_map[start] = start + _segment_manager->get_size();
 }
 
 // returns the number of pages flushed to disk

@@ -3,6 +3,8 @@ add_executable( chainbase_test
     undo_index.cpp
     undo_index_ex.cpp
     grow_shrink.cpp
+    benchmark.cpp
+    secondary_index_tests.cpp
 )
 
 target_link_libraries( chainbase_test  chainbase Boost::unit_test_framework ${PLATFORM_SPECIFIC_LIBS} )

@@ -26,10 +26,12 @@
 #include <typeindex>
 #include <typeinfo>
 #include <set>
+#include <map>
 
 #include <chainbase/pinnable_mapped_file.hpp>
 #include <chainbase/shared_cow_string.hpp>
 #include <chainbase/shared_object.hpp>
+#include <chainbase/shared_object_ptr.hpp>
 #include <chainbase/shared_string_ex.hpp>
 #include <chainbase/chainbase_node_allocator.hpp>
 #include <chainbase/undo_index.hpp>
@@ -453,11 +455,26 @@ namespace chainbase {
              return &*itr;
          }
 
+         template< typename IndexType, typename ObjectType, typename IndexedByType, typename CompatibleKey >
+         const ObjectType* find( CompatibleKey&& key )const
+         {
+             const auto& idx = get_index< IndexType >().indices().template get< IndexedByType >();
+             auto itr = idx.find( std::forward< CompatibleKey >( key ) );
+             if( itr == idx.end() ) return nullptr;
+             return &*itr;
+         }
+
          template< typename ObjectType >
          const ObjectType* find( oid< ObjectType > key = oid< ObjectType >() ) const
          {
              typedef typename get_index_type< ObjectType >::type index_type;
              return get_index< index_type >().find( key );
+         }
+
+         template< typename IndexType, typename ObjectType >
+         const ObjectType* find( oid< ObjectType > key = oid< ObjectType >() ) const
+         {
+             return get_index< IndexType >().find( key );
          }
 
          template< typename ObjectType, typename IndexedByType, typename CompatibleKey >
@@ -484,6 +501,18 @@ namespace chainbase {
              return *obj;
          }
 
+         template< typename IndexType, typename ObjectType >
+         const ObjectType& get_in_index( const oid< ObjectType >& key = oid< ObjectType >() )const
+         {
+             auto obj = find< IndexType, ObjectType >( key );
+             if( !obj ) {
+                std::stringstream ss;
+                ss << "unknown key (" << boost::core::demangle( typeid( key ).name() ) << "): " << key._id;
+                BOOST_THROW_EXCEPTION( std::out_of_range( ss.str().c_str() ) );
+             }
+             return *obj;
+         }
+
          template<typename ObjectType, typename Modifier>
          void modify( const ObjectType& obj, Modifier&& m )
          {
@@ -492,6 +521,15 @@ namespace chainbase {
              }
              typedef typename get_index_type<ObjectType>::type index_type;
              get_mutable_index<index_type>().modify( obj, m );
+         }
+
+         template<typename IndexType, typename ObjectType, typename Modifier>
+         void modify( const ObjectType& obj, Modifier&& m )
+         {
+             if ( _read_only_mode ) {
+                BOOST_THROW_EXCEPTION( std::logic_error( "attempting to modify a record in read-only mode" ) );
+             }
+             get_mutable_index<IndexType>().modify( obj, m );
          }
 
          template<typename ObjectType>
@@ -504,6 +542,15 @@ namespace chainbase {
              return get_mutable_index<index_type>().remove( obj );
          }
 
+         template<typename IndexType, typename ObjectType>
+         void remove( const ObjectType& obj )
+         {
+             if ( _read_only_mode ) {
+                BOOST_THROW_EXCEPTION( std::logic_error( "attempting to remove a record in read-only mode" ) );
+             }
+             return get_mutable_index<IndexType>().remove( obj );
+         }
+
          template<typename ObjectType>
          void remove_without_undo( const ObjectType& obj )
          {
@@ -514,6 +561,15 @@ namespace chainbase {
              return get_mutable_index<index_type>().remove_without_undo( obj );
          }
 
+         template<typename IndexType, typename ObjectType>
+         void remove_without_undo( const ObjectType& obj )
+         {
+             if ( _read_only_mode ) {
+                BOOST_THROW_EXCEPTION( std::logic_error( "attempting to remove a record in read-only mode" ) );
+             }
+             return get_mutable_index<IndexType>().remove_without_undo( obj );
+         }
+
          template<typename ObjectType, typename Constructor>
          const ObjectType& create( Constructor&& con )
          {
@@ -522,6 +578,15 @@ namespace chainbase {
              }
              typedef typename get_index_type<ObjectType>::type index_type;
              return get_mutable_index<index_type>().emplace( std::forward<Constructor>(con) );
+         }
+
+         template<typename IndexType, typename ObjectType, typename Constructor>
+         const ObjectType& create( Constructor&& con )
+         {
+             if ( _read_only_mode ) {
+                BOOST_THROW_EXCEPTION( std::logic_error( "attempting to create a record in read-only mode" ) );
+             }
+             return get_mutable_index<IndexType>().emplace( std::forward<Constructor>(con) );
          }
 
          // empalce object which can only be undo on modification or remove
@@ -535,6 +600,16 @@ namespace chainbase {
              return get_mutable_index<index_type>().emplace_without_undo( std::forward<Constructor>(con) );
          }
 
+         // empalce object which can only be undo on modification or remove
+         template<typename IndexType, typename ObjectType, typename Constructor>
+         const ObjectType& create_without_undo_in_index( Constructor&& con )
+         {
+             if ( _read_only_mode ) {
+                BOOST_THROW_EXCEPTION( std::logic_error( "attempting to create a record in read-only mode" ) );
+             }
+             return get_mutable_index<IndexType>().emplace_without_undo( std::forward<Constructor>(con) );
+         }
+
          void set_configuration(const database_configure& config);
          database_configure& get_configuration() const;
 
@@ -544,6 +619,8 @@ namespace chainbase {
          void set_writable_segment_manager_id( uint64_t id );
          uint64_t get_writable_segment_manager_id() const;
 
+         static database* get_database_from_segment_manager(segment_manager* segment_manager);
+         
       protected:
          pinnable_mapped_file                                        _db_file;
          bool                                                        _read_only = false;
@@ -570,6 +647,7 @@ namespace chainbase {
 
          database_configure*                                         _database_configure = nullptr;
          uint64_t                                                    _instance_id = 0;
+         static std::map<segment_manager*, database*>                _segment_manager_to_database_map;
    };
 
    template<typename Object, typename... Args>

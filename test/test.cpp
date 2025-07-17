@@ -67,7 +67,7 @@ BOOST_AUTO_TEST_CASE( open_and_create ) {
       b.a = 3;
       b.b = 4;
    } );
-   const auto& copy_new_book = db2.get( book::id_type(0) );
+   const auto& copy_new_book = db2.get_in_index<book_index, book>( book::id_type(0) );
    BOOST_REQUIRE( &new_book != &copy_new_book ); ///< these are mapped to different address ranges
 
    BOOST_REQUIRE_EQUAL( new_book.a, copy_new_book.a );
@@ -108,7 +108,7 @@ BOOST_AUTO_TEST_CASE( open_and_create ) {
       BOOST_REQUIRE_EQUAL( book2.a, 9 );
       BOOST_REQUIRE_EQUAL( book2.b, 10 );
    }
-   BOOST_CHECK_THROW( db2.get( book::id_type(1) ), std::out_of_range );
+   BOOST_CHECK_THROW( (db2.get_in_index<book_index, book>( book::id_type(1) )), std::out_of_range );
    BOOST_REQUIRE_EQUAL( new_book.a, 5 );
    BOOST_REQUIRE_EQUAL( new_book.b, 6 );
 
@@ -364,7 +364,7 @@ BOOST_AUTO_TEST_CASE( test_create_ex ) {
    BOOST_TEST(idx.is_mature_object(new_book2));
    BOOST_TEST(new_book2.id == book::id_type(0));
 
-   const auto& copy_new_book2 = db.get( book::id_type(0) );
+   const auto& copy_new_book2 = db.get_in_index<book_index, book>( book::id_type(0) );
    BOOST_TEST(copy_new_book2.id == new_book2.id);
 
    db.modify( copy_new_book2, [&]( book& b ) {

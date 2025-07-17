@@ -4,10 +4,17 @@
 #include <boost/interprocess/managed_mapped_file.hpp>
 #include <boost/interprocess/sync/file_lock.hpp>
 #include <boost/asio/io_service.hpp>
+#include <boost/container/flat_map.hpp>
+
 #include <filesystem>
 namespace chainbase {
 
 namespace bip = boost::interprocess;
+
+using segment_manager = bip::managed_mapped_file::segment_manager;
+
+template<typename T>
+using allocator = bip::allocator<T, segment_manager>;
 
 enum db_error_code {
    ok = 0,
@@ -57,6 +64,35 @@ class pinnable_mapped_file {
 
       bip::mapped_region& get_mapped_region() { return _file_mapped_region; }
 
+      // @brief Finds the allocator associated with a given pointer by looking up the segment it belongs to.
+      // @note The performance of this function depends on the number of segments in `_segment_manager_map`.
+      //       With a large number of segments, the lookup time can become significant.
+      //
+      // Benchmark results on Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz:
+      // - ~130.8 million calls/sec with 1 segments.
+      // - ~115.5 million calls/sec with 10 segments.
+      // - ~84.6 million calls/sec with 100 segments.
+      // - ~22.8 million calls/sec with 1000 segments.
+      // - ~20.8 million calls/sec with 10000 segments.
+      // - ~19.8 million calls/sec with 100000 segments.
+      //
+      template<typename T>
+      static std::optional<allocator<T>> get_allocator(void *object) {
+         if (!_segment_manager_map.empty()) {
+            auto it = _segment_manager_map.upper_bound(object);
+            if(it == _segment_manager_map.begin())
+               return {};
+            auto [seg_start, seg_end] = *(--it);
+            // important: we need to check whether the pointer is really within the segment, as shared objects'
+            // can also be created on the stack (in which case the data is actually allocated on the heap using
+            // std::allocator). This happens for example when `shared_cow_string`s are inserted into a bip::multimap,
+            // and temporary pairs are created on the stack by the bip::multimap code.
+            if (object < seg_end)
+               return allocator<T>(reinterpret_cast<segment_manager *>(seg_start));
+         }
+         return {};
+      }
+
    private:
       void                                          set_mapped_file_db_dirty(bool);
       void                                          load_database_file(boost::asio::io_service& sig_ios);
@@ -84,6 +120,9 @@ class pinnable_mapped_file {
       segment_manager*                              _segment_manager = nullptr;
 
       constexpr static unsigned                     _db_size_multiple_requirement = 1024*1024; //1MB
+
+      using segment_manager_map_t = boost::container::flat_map<void*, void *>;
+      static segment_manager_map_t                  _segment_manager_map;
 };
 
 std::istream& operator>>(std::istream& in, pinnable_mapped_file::map_mode& runtime);

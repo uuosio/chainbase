@@ -257,13 +257,13 @@ EXCEPTION_TEST_CASE(test_insert_push2) {
       auto undo_checker = capture_state(i0);
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
-      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.get_created_value_count() == size_t(1));
       BOOST_TEST(i0.find(12)->secondary == 12);
       session.push();
       i0.commit(i0.revision());
    }
    BOOST_TEST(!i0.has_undo_session());
-   BOOST_TEST(i0.get_created_value_count() == 0);
+   BOOST_TEST(i0.get_created_value_count() == size_t(0));
    BOOST_TEST(i0.find(42)->secondary == 42);
    BOOST_TEST(i0.find(12)->secondary == 12);
 }
@@ -316,7 +316,7 @@ EXCEPTION_TEST_CASE(test_modify_push2) {
       i0.commit(i0.revision());
    }
    BOOST_TEST(!i0.has_undo_session());
-   BOOST_TEST(i0.get_created_value_count() == 0);
+   BOOST_TEST(i0.get_created_value_count() == size_t(0));
    BOOST_TEST(i0.find(18)->secondary == 18);
 }
 
@@ -645,9 +645,9 @@ EXCEPTION_TEST_CASE(test_modify_fail2) {
       // BOOST_CHECK_THROW(i0.modify(i0.get(3), [](conflict_element_t& elem) { elem.x0 = 71; elem.x1 = 10; elem.x2 = 91; }), std::logic_error);
    }
 
-   BOOST_TEST(i0.get<0>().size() == 3);
-   BOOST_TEST(i0.get<1>().size() == 3);
-   BOOST_TEST(i0.get<2>().size() == 3);
+   BOOST_TEST(i0.get<0>().size() == size_t(3));
+   BOOST_TEST(i0.get<1>().size() == size_t(3));
+   BOOST_TEST(i0.get<2>().size() == size_t(3));
    // BOOST_TEST(i0.get<3>().size() == 3);
    BOOST_TEST(i0.find(10)->x0 == 10);
    BOOST_TEST(i0.find(11)->x1 == 11);
@@ -735,7 +735,7 @@ EXCEPTION_TEST_CASE(test_memory_usage2) {
    {
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
-      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.get_created_value_count() == size_t(1));
       BOOST_TEST(i0.find(12)->secondary == 12);
    }
    BOOST_TEST(used_memory == get_used_memory(manager));
@@ -743,7 +743,7 @@ EXCEPTION_TEST_CASE(test_memory_usage2) {
    {
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
-      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.get_created_value_count() == size_t(1));
       BOOST_TEST(i0.find(12)->secondary == 12);
       session.push();
       i0.commit(i0.revision());
@@ -752,14 +752,14 @@ EXCEPTION_TEST_CASE(test_memory_usage2) {
    {
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
-      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.get_created_value_count() == size_t(1));
       BOOST_TEST(i0.find(13)->secondary == 13);
       session.push();
       i0.commit(i0.revision());
    }
 
    BOOST_TEST(!i0.has_undo_session());
-   BOOST_TEST(i0.get_created_value_count() == 0);
+   BOOST_TEST(i0.get_created_value_count() == size_t(0));
    BOOST_TEST(i0.find(42)->secondary == 42);
    // BOOST_TEST(i0.find(12) == nullptr);
 }
@@ -781,10 +781,10 @@ EXCEPTION_TEST_CASE(test_memory_usage3) {
    {
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
-      BOOST_TEST(i0.get_created_value_count() == 0);
+      BOOST_TEST(i0.get_created_value_count() == size_t(0));
       BOOST_TEST(i0.find(1)->secondary == 12);
       auto delta = i0.last_undo_session();
-      BOOST_TEST(delta.new_values.size() == 1);
+      BOOST_TEST(delta.new_values.size() == size_t(1));
       BOOST_TEST(delta.new_values[0]->secondary == 12);
    }
    BOOST_TEST(used_memory == get_used_memory(manager));
@@ -792,7 +792,7 @@ EXCEPTION_TEST_CASE(test_memory_usage3) {
    {
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
-      BOOST_TEST(i0.get_created_value_count() == 0);
+      BOOST_TEST(i0.get_created_value_count() == size_t(0));
       BOOST_TEST(i0.find(1)->secondary == 12);
       session.push();
       i0.commit(i0.revision());
@@ -801,14 +801,14 @@ EXCEPTION_TEST_CASE(test_memory_usage3) {
    {
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
-      BOOST_TEST(i0.get_created_value_count() == 0);
+      BOOST_TEST(i0.get_created_value_count() == size_t(0));
       BOOST_TEST(i0.find(2)->secondary == 13);
       session.push();
       i0.commit(i0.revision());
    }
 
    BOOST_TEST(!i0.has_undo_session());
-   BOOST_TEST(i0.get_created_value_count() == 0);
+   BOOST_TEST(i0.get_created_value_count() == size_t(0));
    BOOST_TEST(i0.find(0)->secondary == 42);
    // BOOST_TEST(i0.find(12) == nullptr);
 }
@@ -822,45 +822,45 @@ EXCEPTION_TEST_CASE(test_commit2) {
    {
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
-      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.get_created_value_count() == size_t(1));
       BOOST_TEST(i0.find(12)->secondary == 12);
       session.push();
       auto delta = i0.last_undo_session();
-      BOOST_TEST(delta.new_values.size() == 1);
+      BOOST_TEST(delta.new_values.size() == size_t(1));
       BOOST_TEST(delta.new_values[0]->secondary == 12);
 
       auto revision = i0.revision();
 
       auto session2 = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
-      BOOST_TEST(i0.get_created_value_count() == 2);
+      BOOST_TEST(i0.get_created_value_count() == size_t(2));
       BOOST_TEST(i0.find(13)->secondary == 13);
       session2.push();
       // auto revision2 = i0.revision();
       delta = i0.last_undo_session();
-      BOOST_TEST(delta.new_values.size() == 1);
+      BOOST_TEST(delta.new_values.size() == size_t(1));
       BOOST_TEST(delta.new_values[0]->secondary == 13);
 
       auto session3 = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 14; });
-      BOOST_TEST(i0.get_created_value_count() == 3);
+      BOOST_TEST(i0.get_created_value_count() == size_t(3));
       BOOST_TEST(i0.find(14)->secondary == 14);
       session3.push();
       delta = i0.last_undo_session();
-      BOOST_TEST(delta.new_values.size() == 1);
+      BOOST_TEST(delta.new_values.size() == size_t(1));
       BOOST_TEST(delta.new_values[0]->secondary == 14);
 
       auto revision3 = i0.revision();
 
       i0.commit(revision);
-      BOOST_TEST(i0.get_created_value_count() == 2);
+      BOOST_TEST(i0.get_created_value_count() == size_t(2));
       // i0.commit(revision2);
       // BOOST_TEST(i0.get_created_value_count() == 1);
       i0.commit(revision3);
-      BOOST_TEST(i0.get_created_value_count() == 0);
+      BOOST_TEST(i0.get_created_value_count() == size_t(0));
    }
    BOOST_TEST(!i0.has_undo_session());
-   BOOST_TEST(i0.get_created_value_count() == 0);
+   BOOST_TEST(i0.get_created_value_count() == size_t(0));
    BOOST_TEST(i0.find(42)->secondary == 42);
    BOOST_TEST(i0.find(12)->secondary == 12);
    BOOST_TEST(i0.find(13)->secondary == 13);
@@ -876,31 +876,31 @@ EXCEPTION_TEST_CASE(test_commit_undo2) {
    {
       auto session = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
-      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.get_created_value_count() == size_t(1));
       BOOST_TEST(i0.find(12)->secondary == 12);
       session.push();
       auto revision = i0.revision();
       
       auto session2 = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
-      BOOST_TEST(i0.get_created_value_count() == 2);
+      BOOST_TEST(i0.get_created_value_count() == size_t(2));
       BOOST_TEST(i0.find(13)->secondary == 13);
       session2.push();
 
       auto session3 = i0.start_undo_session(true);
       i0.emplace([](test_element_t& elem) { elem.secondary = 14; });
-      BOOST_TEST(i0.get_created_value_count() == 3);
+      BOOST_TEST(i0.get_created_value_count() == size_t(3));
       BOOST_TEST(i0.find(14)->secondary == 14);
       session3.push();
 
       i0.commit(revision);
-      BOOST_TEST(i0.get_created_value_count() == 2);
+      BOOST_TEST(i0.get_created_value_count() == size_t(2));
 
       i0.undo();
       BOOST_TEST(i0.find(14) == nullptr);
       BOOST_TEST(i0.find(13)->secondary == 13);
       BOOST_TEST(i0.find(12)->secondary == 12);
-      BOOST_TEST(i0.get_created_value_count() == 1);
+      BOOST_TEST(i0.get_created_value_count() == size_t(1));
 
       i0.undo();
       BOOST_TEST(i0.find(14) == nullptr);
@@ -920,11 +920,11 @@ EXCEPTION_TEST_CASE(test_last_undo_session2) {
          auto session = i0.start_undo_session(true);
          i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
          i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
-         BOOST_TEST(i0.get_created_value_count() == 0);
+         BOOST_TEST(i0.get_created_value_count() == size_t(0));
          BOOST_TEST(i0.find(0)->secondary == 12);
          BOOST_TEST(i0.find(1)->secondary == 13);
          auto delta = i0.last_undo_session();
-         BOOST_TEST(delta.new_values.size() == 2);
+         BOOST_TEST(delta.new_values.size() == size_t(2));
          BOOST_TEST(delta.new_values[0]->secondary == 12);
          BOOST_TEST(delta.new_values[1]->secondary == 13);
       }
@@ -939,11 +939,11 @@ EXCEPTION_TEST_CASE(test_last_undo_session2) {
          auto session = i0.start_undo_session(true);
          i0.emplace([](test_element_t& elem) { elem.secondary = 12; });
          i0.emplace([](test_element_t& elem) { elem.secondary = 13; });
-         BOOST_TEST(i0.get_created_value_count() == 2);
+         BOOST_TEST(i0.get_created_value_count() == size_t(2));
          BOOST_TEST(i0.find(12)->secondary == 12);
          BOOST_TEST(i0.find(13)->secondary == 13);
          auto delta = i0.last_undo_session();
-         BOOST_TEST(delta.new_values.size() == 2);
+         BOOST_TEST(delta.new_values.size() == size_t(2));
          BOOST_TEST(delta.new_values[0]->secondary == 12);
          BOOST_TEST(delta.new_values[1]->secondary == 13);
       }

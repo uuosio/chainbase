@@ -9,6 +9,7 @@
 #endif
 
 namespace chainbase {
+   std::map<segment_manager*, database*> database::_segment_manager_to_database_map = {};
 
    database::database(const std::filesystem::path& dir, open_flags flags, uint64_t shared_file_size, bool allow_dirty,
                       pinnable_mapped_file::map_mode db_map_mode) :
@@ -30,6 +31,7 @@ namespace chainbase {
       if (_database_configure->unique_segment_manager_id != 0) {
          allocator_set_segment_manager(_database_configure->unique_segment_manager_id, get_segment_manager());
       }
+      _segment_manager_to_database_map.emplace(get_segment_manager(), this);
    }
 
    database::~database()
@@ -318,6 +320,14 @@ namespace chainbase {
          }
          return segment_manager_id;
       }
+   }
+
+   database* database::get_database_from_segment_manager(segment_manager* segment_manager){
+      auto it = _segment_manager_to_database_map.find(segment_manager);
+      if (it != _segment_manager_to_database_map.end()) {
+         return it->second;
+      }
+      return nullptr;
    }
 
 }  // namespace chainbase

@@ -27,7 +27,7 @@
 #include "undo_index_events.hpp"
 
 namespace chainbase {
-   const static int64_t max_database_count = 1000;
+   const static int64_t max_database_count = 100000;
    const static int64_t max_next_id = std::numeric_limits<int64_t>::max()/max_database_count;
    const static int64_t max_create_without_undo_next_id = std::numeric_limits<int64_t>::max()/max_database_count/2;
 
@@ -252,7 +252,11 @@ template<class Tag>
 
    template<typename T, typename Allocator, typename... Indices>
    class undo_index;
-  
+
+   template<typename T, typename Allocator, typename... Indices>
+   class secondary_index;
+
+   
    template<typename Node, typename OrderedIndex>
    struct set_impl : private set_base<Node, OrderedIndex> {
       using base_type = set_base<Node, OrderedIndex>;
@@ -332,6 +336,8 @@ template<class Tag>
       using base_type::empty;
       template<typename T, typename Allocator, typename... Indices>
       friend class undo_index;
+      template<typename T, typename Allocator, typename... Indices>
+      friend class secondary_index;
 
       private:
          uint64_t _instance_id = 0; //database instance id
@@ -1085,6 +1091,9 @@ template<class Tag>
                undo_index_on_remove_value_in_undo(_instance_id, _database_id, &*p);
                erase_impl<1>(*p);
                dispose_node(*p);
+               if (_on_undo_created) {
+                  _on_undo_created(*p);
+               }
             });
          } else {
             auto new_ids_iter = _created_values.lower_bound(undo_info.old_next_id._id);
@@ -1094,6 +1103,11 @@ template<class Tag>
                   this->erase_impl(p->_current->_item);
                   this->dispose_node(*p->_current);
                }
+
+               if (_on_undo_created) {
+                  _on_undo_created(p->_current->_item);
+               }
+
                dispose_created(*p);
             });
          }
@@ -1104,7 +1118,13 @@ template<class Tag>
             // Duplicate modifies can only happen because of squash.
             if(restored_mtime < undo_info.ctime) {
                auto iter = &to_old_node(*p)._current->_item;
-               *iter = std::move(*p);
+               if (_on_undo_modified) {
+                  _on_undo_modified(*iter,  [iter, p]() {
+                     *iter = std::move(*p);
+                  });
+               } else {
+                  *iter = std::move(*p);
+               }
                auto& node_mtime = to_node(*iter)._mtime;
                node_mtime = restored_mtime;
                if (get_removed_field(*iter) != erased_flag) {
@@ -1133,6 +1153,9 @@ template<class Tag>
                      // add back created value
                      insert_created_value(*removed);
                   }
+               }
+               if (_on_undo_removed) {
+                  _on_undo_removed(*removed);
                }
             } else {
                dispose_node(*removed);
@@ -1175,8 +1198,28 @@ template<class Tag>
       bool _exists(const value_type& p) const {
          if constexpr (N < sizeof...(Indices)) {
             auto& idx = std::get<N>(_indices);
-            if (idx.find(p) != idx.end()) {
-               return true;
+            
+            if (idx.empty()) {
+                return _exists<N+1>(p);
+            }
+
+            using base_type = typename std::decay_t<decltype(idx)>::base_type;
+            typename base_type::key_compare cmp;
+            typename base_type::key_of_value key_extractor;
+
+            const auto& min_val = *idx.begin();
+            auto end_it = idx.end();
+            --end_it;
+            const auto& max_val = *end_it;
+
+            auto p_key = key_extractor(p);
+            auto min_key = key_extractor(min_val);
+            auto max_key = key_extractor(max_val);
+
+            if (!cmp(p_key, min_key) && !cmp(max_key, p_key)) {
+                if (idx.find(p) != idx.end()) {
+                   return true;
+                }
             }
             return _exists<N+1>(p);
          }
@@ -1189,6 +1232,19 @@ template<class Tag>
          } else {
             return _exists<0>(p);
          }
+      }
+
+      void set_on_undo_created(std::function<void(const value_type&)> f) {
+         _on_undo_created = f;
+      }
+
+      // f(current_value, old_value)
+      void set_on_undo_modified(std::function<void(const value_type&, std::function<void()>)> f) {
+         _on_undo_modified = f;
+      }
+
+      void set_on_undo_removed(std::function<void(const value_type&)> f) {
+         _on_undo_removed = f;
       }
 
     private:
@@ -1467,6 +1523,11 @@ template<class Tag>
       uint64_t _instance_id = 0;
       uint32_t                        _size_of_value_type = sizeof(node);
       uint32_t                        _size_of_this = sizeof(undo_index);
+
+      std::function<void(const value_type&)> _on_undo_created = nullptr;
+      std::function<void(const value_type&, std::function<void()>)> _on_undo_modified = nullptr;
+      std::function<void(const value_type&)> _on_undo_removed = nullptr;
+
    };
 
    template<typename MultiIndexContainer>
